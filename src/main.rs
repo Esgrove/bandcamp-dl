@@ -21,7 +21,7 @@ struct Args {
     force: bool,
 
     /// Optional output directory
-    #[arg(short, long)]
+    #[arg(short, long, name = "PATH")]
     output: Option<String>,
 
     /// Verbose output
