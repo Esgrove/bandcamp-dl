@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::{env, fs};
 
 use anyhow::{anyhow, Context, Error};
+use colored::Colorize;
 use futures::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
@@ -21,7 +22,7 @@ pub async fn download_urls(
     force: bool,
 ) -> Vec<Result<PathBuf, Error>> {
     let multi_progress = Arc::new(MultiProgress::new());
-    let semaphore = Arc::new(Semaphore::new(8));
+    let semaphore = Arc::new(Semaphore::new(num_cpus::get()));
     let tasks: Vec<_> = urls
         .into_iter()
         .map(|url| {
@@ -44,18 +45,6 @@ pub async fn download_urls(
         .collect();
 
     results
-}
-
-pub fn count_files_in_directory<P: AsRef<Path>>(path: P) -> anyhow::Result<usize> {
-    let entries = fs::read_dir(path)?;
-    let mut count = 0;
-    for entry in entries {
-        let entry = entry?;
-        if entry.path().is_file() {
-            count += 1;
-        }
-    }
-    Ok(count)
 }
 
 pub async fn download_file(
@@ -85,26 +74,38 @@ pub async fn download_file(
     let mut file = File::create(&path)?;
     let mut content = response.bytes_stream();
 
-    let pb = multi_progress.add(ProgressBar::new(total_size));
-    pb.set_style(
+    let progress_bar = multi_progress.add(ProgressBar::new(total_size));
+    progress_bar.set_style(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] {bar:60.cyan/blue} {bytes}/{total_bytes} ({eta}) {msg}")?
             .progress_chars("##-"),
     );
-    pb.set_message(filename.to_string());
+    progress_bar.set_message(filename.to_string());
 
     while let Some(chunk) = content.next().await {
         let chunk = chunk?;
-        pb.inc(chunk.len() as u64);
+        progress_bar.inc(chunk.len() as u64);
         file.write_all(&chunk)?;
     }
 
-    pb.finish();
+    progress_bar.finish();
 
     Ok(path)
 }
 
-pub fn get_all_zip_files_in_dir(paths: &[PathBuf]) -> Vec<PathBuf> {
+pub fn count_files_in_directory<P: AsRef<Path>>(path: P) -> anyhow::Result<usize> {
+    let entries = fs::read_dir(path)?;
+    let mut count = 0;
+    for entry in entries {
+        let entry = entry?;
+        if entry.path().is_file() {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+pub fn get_all_zip_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     paths
         .iter()
         .filter(|path| path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("zip"))
@@ -112,31 +113,40 @@ pub fn get_all_zip_files_in_dir(paths: &[PathBuf]) -> Vec<PathBuf> {
         .collect()
 }
 
-pub async fn extract_zip_files(zip_files: Vec<PathBuf>) {
+pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
+    let multi_progress = Arc::new(MultiProgress::new());
     let mut tasks = Vec::new();
-    let mut errors = Vec::new();
-
+    let semaphore = Arc::new(Semaphore::new(num_cpus::get()));
     for zip_path in zip_files.into_iter() {
-        let task = extract_zip_file(zip_path);
+        let sem = Arc::clone(&semaphore);
+        let progress_clone = Arc::clone(&multi_progress);
+        let task = tokio::spawn(async move {
+            let permit = sem.acquire().await.unwrap();
+            let result = extract_zip_file(zip_path, progress_clone, overwrite).await;
+            drop(permit);
+            result
+        });
         tasks.push(task);
     }
 
-    // Wait for all tasks to complete and gather errors
-    for task in tasks {
-        if let Err(e) = task.await {
-            errors.push(e.to_string());
-        }
-    }
+    let results: Vec<Result<(), _>> = futures::future::join_all(tasks)
+        .await
+        .into_iter()
+        .map(|res| res.unwrap())
+        .collect();
 
-    if !errors.is_empty() {
-        println!("Errors occurred during extraction:");
-        for error in errors {
-            println!("{}", error);
+    for result in results.iter() {
+        if let Err(e) = result {
+            eprintln!("{}", format!("Error: {}", e).red());
         }
     }
 }
 
-pub async fn extract_zip_file(path: PathBuf) -> anyhow::Result<()> {
+pub async fn extract_zip_file(
+    path: PathBuf,
+    multi_progress: Arc<MultiProgress>,
+    overwrite: bool,
+) -> anyhow::Result<()> {
     let extract_to = path
         .parent()
         .context("Failed to get parent dir")?
@@ -147,8 +157,25 @@ pub async fn extract_zip_file(path: PathBuf) -> anyhow::Result<()> {
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
         let file = File::open(&zip_path)
             .with_context(|| format!("Failed to open zip file: {}", zip_path.display()))?;
+
         let mut archive = ZipArchive::new(file)
             .with_context(|| format!("Failed to read zip archive: {}", zip_path.display()))?;
+
+        let zip_file_name = zip_path
+            .file_name()
+            .context("Failed to get zip file name")?
+            .to_string_lossy()
+            .to_string();
+
+        let progress_bar = multi_progress.add(ProgressBar::new(archive.len() as u64));
+        progress_bar.set_style(
+            ProgressStyle::default_bar()
+                .template(
+                    "[{elapsed_precise}] {bar:60.magenta/blue} {pos:>7}/{len:7} ({eta}) {msg}",
+                )?
+                .progress_chars("##-"),
+        );
+        progress_bar.set_message(zip_file_name);
 
         for i in 0..archive.len() {
             let mut file = archive.by_index(i).with_context(|| {
@@ -157,7 +184,16 @@ pub async fn extract_zip_file(path: PathBuf) -> anyhow::Result<()> {
                     zip_path.display()
                 )
             })?;
-            let output_path = extract_to.join(file.name());
+            let file_path = file
+                .enclosed_name()
+                .ok_or_else(|| anyhow::anyhow!("Zip file contains unsafe path: {}", file.name()))?;
+
+            let mut output_path = extract_to.join(file_path);
+            if let Some(extension) = output_path.extension() {
+                if extension == "aiff" {
+                    output_path.set_extension("aif");
+                }
+            }
 
             if file.is_dir() {
                 fs::create_dir_all(&output_path).with_context(|| {
@@ -171,6 +207,9 @@ pub async fn extract_zip_file(path: PathBuf) -> anyhow::Result<()> {
                         })?;
                     }
                 }
+                if output_path.exists() && !overwrite {
+                    continue;
+                }
                 let mut output_file = File::create(&output_path).with_context(|| {
                     format!("Failed to create output file: {}", output_path.display())
                 })?;
@@ -181,7 +220,9 @@ pub async fn extract_zip_file(path: PathBuf) -> anyhow::Result<()> {
                     )
                 })?;
             }
+            progress_bar.inc(1);
         }
+        progress_bar.finish();
         Ok(())
     })
     .await??;

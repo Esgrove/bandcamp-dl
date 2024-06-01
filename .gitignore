@@ -1,6 +1,9 @@
 /target
 /bcdl
-.aif
-.aiff
-.mp3
-.zip
+*.aif
+*.aiff
+*.jpeq
+*.jpg
+*.mp3
+*.png
+*.zip

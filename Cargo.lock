@@ -138,6 +138,7 @@ dependencies = [
  "dunce",
  "futures",
  "indicatif",
+ "num_cpus",
  "once_cell",
  "regex",
  "reqwest",

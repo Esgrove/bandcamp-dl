@@ -1,7 +1,6 @@
 use anyhow::Context;
 use bandcamp_dl::{
-    count_files_in_directory, get_all_zip_files_in_dir,
-    get_relative_path_from_current_working_directory,
+    count_files_in_directory, get_all_zip_files, get_relative_path_from_current_working_directory,
 };
 use clap::Parser;
 use colored::Colorize;
@@ -62,9 +61,6 @@ async fn main() -> anyhow::Result<()> {
     for result in results.into_iter() {
         match result {
             Ok(path) => {
-                if args.verbose {
-                    println!("Downloaded {}", path.display());
-                }
                 successful.push(path);
             }
             Err(e) => {
@@ -73,14 +69,14 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let zip_files = get_all_zip_files_in_dir(&successful);
+    let zip_files = get_all_zip_files(&successful);
     if !zip_files.is_empty() {
         if zip_files.len() > 1 {
             println!("Extracting {} zip files", zip_files.len());
         } else {
             println!("Extracting 1 zip file");
         };
-        bandcamp_dl::extract_zip_files(zip_files).await;
+        bandcamp_dl::extract_zip_files(zip_files, args.force).await;
     }
 
     let file_count_at_end = count_files_in_directory(&absolute_output_path)?;
