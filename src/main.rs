@@ -80,7 +80,8 @@ async fn download_file(
         file.write_all(&chunk)?;
     }
 
-    pb.finish_with_message("Done");
+    pb.finish();
+
     Ok(())
 }
 
