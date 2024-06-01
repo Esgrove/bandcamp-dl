@@ -5,7 +5,13 @@ use std::sync::Arc;
 
 use futures::stream::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH};
+use urlencoding::decode;
+
+static RE_FILENAME: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)filename\*?=(?:UTF-8''|["']?)([^;"']+)"#).unwrap());
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,12 +46,14 @@ async fn download_file(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let response = reqwest::get(url).await?;
     let headers = response.headers();
-    let filename = get_filename(headers, url);
-    let total_size = headers
-        .get(CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let filename = get_filename(headers)?;
+    let total_size = get_total_size(headers);
+
+    // println!(
+    //     "Downloading {} ({} MB)...",
+    //     filename,
+    //     total_size / 1024 / 1024
+    // );
 
     let path = Path::new(&filename);
     if path.exists() {
@@ -53,17 +61,18 @@ async fn download_file(
         return Ok(());
     }
 
-    println!("Downloading {} ({} bytes)...", filename, total_size);
-
     let mut file = File::create(&filename)?;
     let mut content = response.bytes_stream();
 
     let pb = multi_progress.add(ProgressBar::new(total_size));
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{bar:40.cyan/blue} {bytes}/{total_bytes} ({eta})")?
-            .progress_chars("##-"),
+            .template(
+                "[{elapsed_precise}] {wide_bar:40.cyan/blue} {bytes}/{total_bytes} ({eta}) {msg}",
+            )?
+            .progress_chars("#>-"),
     );
+    pb.set_message(format!("{:.1$}", filename, 30));
 
     while let Some(chunk) = content.next().await {
         let chunk = chunk?;
@@ -71,21 +80,25 @@ async fn download_file(
         file.write_all(&chunk)?;
     }
 
-    pb.finish_with_message("Download complete");
-    println!("File downloaded: {}", filename);
+    pb.finish_with_message("Done");
     Ok(())
 }
 
-fn get_filename(headers: &HeaderMap, url: &str) -> String {
+fn get_total_size(headers: &HeaderMap) -> u64 {
+    headers
+        .get(CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
+fn get_filename(headers: &HeaderMap) -> Result<String, Box<dyn std::error::Error>> {
     if let Some(content_disposition) = headers.get(CONTENT_DISPOSITION) {
-        if let Ok(content_disposition) = content_disposition.to_str() {
-            if let Some(filename) = content_disposition.split("filename=").nth(1) {
-                return filename.trim_matches('"').to_string();
-            }
+        let content_disposition = content_disposition.to_str()?;
+        if let Some(captures) = RE_FILENAME.captures(content_disposition) {
+            let filename = &captures[1];
+            return Ok(decode(filename)?.to_string());
         }
     }
-    url.split('/')
-        .last()
-        .unwrap_or("downloaded_file")
-        .to_string()
+    Err(Box::from("Failed to get filename"))
 }
