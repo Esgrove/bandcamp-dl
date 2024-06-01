@@ -1,8 +1,10 @@
+pub mod utils;
+
+use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{env, fs};
 
 use anyhow::{anyhow, Context, Error};
 use colored::Colorize;
@@ -91,26 +93,6 @@ pub async fn download_file(
     progress_bar.finish();
 
     Ok(path)
-}
-
-pub fn count_files_in_directory<P: AsRef<Path>>(path: P) -> anyhow::Result<usize> {
-    let entries = fs::read_dir(path)?;
-    let mut count = 0;
-    for entry in entries {
-        let entry = entry?;
-        if entry.path().is_file() {
-            count += 1;
-        }
-    }
-    Ok(count)
-}
-
-pub fn get_all_zip_files(paths: &[PathBuf]) -> Vec<PathBuf> {
-    paths
-        .iter()
-        .filter(|path| path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("zip"))
-        .map(PathBuf::from)
-        .collect()
 }
 
 pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
@@ -225,18 +207,6 @@ pub async fn extract_zip_file(
         Ok(())
     })
     .await?
-}
-
-/// Convert the given path to be relative to the current working directory.
-/// Returns the original path if the relative path cannot be created.
-pub fn get_relative_path_from_current_working_directory(path: &Path) -> PathBuf {
-    env::current_dir()
-        .map(|current_dir| {
-            path.strip_prefix(&current_dir)
-                .unwrap_or(path)
-                .to_path_buf()
-        })
-        .unwrap_or(path.to_path_buf())
 }
 
 fn get_total_size(headers: &HeaderMap) -> u64 {

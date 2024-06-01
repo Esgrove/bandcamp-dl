@@ -1,11 +1,14 @@
-use anyhow::Context;
-use bandcamp_dl::{
-    count_files_in_directory, get_all_zip_files, get_relative_path_from_current_working_directory,
-};
-use clap::Parser;
-use colored::Colorize;
 use std::env;
 use std::path::PathBuf;
+
+use anyhow::Context;
+use clap::Parser;
+use colored::Colorize;
+
+use bandcamp_dl::utils::{
+    count_files_in_directory, get_all_zip_files, get_relative_path_from_current_working_directory,
+    remove_images_from_dir,
+};
 
 #[derive(Parser)]
 #[command(author, about, version)]
@@ -77,6 +80,17 @@ async fn main() -> anyhow::Result<()> {
             println!("Extracting 1 zip file");
         };
         bandcamp_dl::extract_zip_files(zip_files, args.force).await;
+    }
+
+    let removed = remove_images_from_dir(&absolute_output_path)?;
+    if !removed.is_empty() && args.verbose {
+        println!("Removed images ({}):", removed.len());
+        for file in removed.iter() {
+            println!(
+                "  {}",
+                get_relative_path_from_current_working_directory(file).display()
+            );
+        }
     }
 
     let file_count_at_end = count_files_in_directory(&absolute_output_path)?;
