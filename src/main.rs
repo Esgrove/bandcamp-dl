@@ -12,11 +12,9 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH};
-use urlencoding::decode;
 use zip::ZipArchive;
 
-static RE_FILENAME: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)filename\*?=(?:UTF-8''|["']?)([^;"']+)"#).unwrap());
+static RE_FILENAME: Lazy<Regex> = Lazy::new(|| Regex::new(r#"; filename="([^"]+)";"#).unwrap());
 
 #[derive(Parser)]
 #[command(author, about, version)]
@@ -248,12 +246,8 @@ fn get_filename(headers: &HeaderMap) -> anyhow::Result<String> {
         .and_then(|value| value.to_str().ok())
         .and_then(|content_disposition| RE_FILENAME.captures(content_disposition))
         .and_then(|captures| captures.get(1))
-        .and_then(|filename| {
-            decode(filename.as_str())
-                .ok()
-                .map(|decoded| decoded.to_string())
-        })
-        .context("Failed to get filename")
+        .map(|filename| filename.as_str().to_string())
+        .ok_or_else(|| anyhow::anyhow!("Failed to get filename"))
 }
 
 fn count_files_in_directory<P: AsRef<Path>>(path: P) -> anyhow::Result<usize> {
