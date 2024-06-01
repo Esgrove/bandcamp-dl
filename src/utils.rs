@@ -23,13 +23,18 @@ pub fn resolve_path(path: Option<String>) -> anyhow::Result<PathBuf> {
 }
 
 /// Convert the given path to be relative to the current working directory.
-/// Returns the original path if the relative path cannot be created.
+/// Returns the original path if the relative path cannot be created,
+/// or the path is the same.
 pub fn get_relative_path_from_current_working_directory(path: &Path) -> PathBuf {
     env::current_dir()
         .map(|current_dir| {
-            path.strip_prefix(&current_dir)
-                .unwrap_or(path)
-                .to_path_buf()
+            if current_dir == path {
+                current_dir
+            } else {
+                path.strip_prefix(&current_dir)
+                    .unwrap_or(path)
+                    .to_path_buf()
+            }
         })
         .unwrap_or(path.to_path_buf())
 }

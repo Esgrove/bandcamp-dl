@@ -79,7 +79,7 @@ pub async fn download_file(
     let progress_bar = multi_progress.add(ProgressBar::new(total_size));
     progress_bar.set_style(
         ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:60.cyan/blue} {bytes}/{total_bytes} {msg}")?
+            .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:<10}/{total_bytes:10} {bytes_per_sec:<9} {msg}")?
             .progress_chars("##-"),
     );
     progress_bar.set_message(filename.to_string());
@@ -152,7 +152,7 @@ pub async fn extract_zip_file(
         let progress_bar = multi_progress.add(ProgressBar::new(archive.len() as u64));
         progress_bar.set_style(
             ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:60.magenta/blue} {pos:>3}/{len:3} {msg}")?
+                .template("[{elapsed_precise}] {bar:50.magenta/blue} {pos:>3}/{len:3} {msg}")?
                 .progress_chars("##-"),
         );
         progress_bar.set_message(zip_file_name);
