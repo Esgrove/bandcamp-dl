@@ -9,6 +9,7 @@ readme = "README.md"
 repository = "https://github.com/Esgrove/bandcamp-dl"
 keywords = ["cli"]
 categories = ["command-line-utilities"]
+default-run = "bcdl"
 
 [dependencies]
 anyhow = "1.0.86"
