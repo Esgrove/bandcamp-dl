@@ -41,10 +41,12 @@ pub fn remove_images_from_dir(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        path.extension()
+        if let Some(extension) = path
+            .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext_str| ext_str.to_lowercase())
-            .map(|ext_str| match ext_str.as_str() {
+        {
+            match extension.as_str() {
                 "jpg" | "jpeg" | "png" => {
                     trash::delete(&path).with_context(|| {
                         format!("Failed to move image to trash: {}", path.display())
@@ -52,7 +54,8 @@ pub fn remove_images_from_dir(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
                     removed.push(path.to_path_buf());
                 }
                 _ => (),
-            });
+            }
+        }
     }
     Ok(removed)
 }

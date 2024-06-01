@@ -64,10 +64,10 @@ print_usage_and_exit() {
 # Get the Rust executable name from Cargo.toml
 get_rust_executable_name() {
     local executable
-    executable=$(awk -F'=' '/\[\[bin\]\]/,/name/ {if($1 ~ /name/) print $2}' Cargo.toml | tr -d ' "')
+    executable=$(awk -F'=' '/\[\[bin\]\]/,/name/ {if($1 ~ /name/) print $2}' Cargo.toml | tr -d ' "' | head -n 1)
     # If no name under [[bin]], get the package name
     if [ -z "$executable" ]; then
-        executable=$(awk -F'=' '/\[package\]/,/name/ {if($1 ~ /name/) print $2}' Cargo.toml | tr -d ' "')
+        executable=$(awk -F'=' '/\[package\]/,/name/ {if($1 ~ /name/) print $2}' Cargo.toml | tr -d ' "' | head -n 1)
     fi
     if [ "$BASH_PLATFORM" = windows ]; then
         executable="${executable}.exe"
