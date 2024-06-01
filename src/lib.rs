@@ -24,7 +24,7 @@ pub async fn download_urls(
     force: bool,
 ) -> Vec<Result<PathBuf, Error>> {
     let multi_progress = Arc::new(MultiProgress::new());
-    let semaphore = Arc::new(Semaphore::new(num_cpus::get()));
+    let semaphore = Arc::new(Semaphore::new(num_cpus::get() / 2));
     let tasks: Vec<_> = urls
         .into_iter()
         .map(|url| {
@@ -98,7 +98,7 @@ pub async fn download_file(
 pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
     let multi_progress = Arc::new(MultiProgress::new());
     let mut tasks = Vec::new();
-    let semaphore = Arc::new(Semaphore::new(num_cpus::get()));
+    let semaphore = Arc::new(Semaphore::new(num_cpus::get() / 2));
     for zip_path in zip_files.into_iter() {
         let sem = Arc::clone(&semaphore);
         let progress_clone = Arc::clone(&multi_progress);
