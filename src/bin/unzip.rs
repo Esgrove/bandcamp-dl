@@ -6,8 +6,6 @@ use std::fs;
 async fn main() -> anyhow::Result<()> {
     let current_dir = std::env::current_dir()?;
 
-    let file_count_at_start = count_files_in_directory(&current_dir)?;
-
     let zip_files: Vec<_> = fs::read_dir(&current_dir)?
         .filter_map(|entry| {
             let entry = entry.ok()?;
@@ -20,18 +18,18 @@ async fn main() -> anyhow::Result<()> {
         })
         .collect();
 
-    for zip_file in zip_files.iter() {
-        println!("{:?}", zip_file);
+    if zip_files.is_empty() {
+        anyhow::bail!("No zip files found")
     }
 
-    if !zip_files.is_empty() {
-        if zip_files.len() > 1 {
-            println!("Extracting {} zip files", zip_files.len());
-        } else {
-            println!("Extracting 1 zip file");
-        };
-        bandcamp_dl::extract_zip_files(zip_files, true).await;
-    }
+    let file_count_at_start = count_files_in_directory(&current_dir)?;
+
+    if zip_files.len() > 1 {
+        println!("Extracting {} zip files", zip_files.len());
+    } else {
+        println!("Extracting 1 zip file");
+    };
+    bandcamp_dl::extract_zip_files(zip_files, true).await;
 
     let file_count_at_end = count_files_in_directory(&current_dir)?;
     let added_files = file_count_at_end as i64 - file_count_at_start as i64;
