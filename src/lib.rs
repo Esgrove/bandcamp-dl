@@ -223,13 +223,10 @@ pub async fn extract_zip_file(
             progress_bar.inc(1);
         }
         progress_bar.finish();
+        trash::delete(&zip_path).context("Failed to move zip file to trash")?;
         Ok(())
     })
-    .await??;
-
-    tokio::fs::remove_file(path)
-        .await
-        .context("Failed to remove zip file after extracting")
+    .await?
 }
 
 /// Convert the given path to be relative to the current working directory.
