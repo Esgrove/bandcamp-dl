@@ -79,7 +79,7 @@ pub async fn download_file(
     let progress_bar = multi_progress.add(ProgressBar::new(total_size));
     progress_bar.set_style(
         ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:<10}/{total_bytes:10} {bytes_per_sec:<9} {msg}")?
+            .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}")?
             .progress_chars("##-"),
     );
     progress_bar.set_message(filename.to_string());
