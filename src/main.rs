@@ -95,7 +95,11 @@ async fn main() -> anyhow::Result<()> {
 
     let file_count_at_end = count_files_in_directory(&absolute_output_path)?;
     let added_files = file_count_at_end as i64 - file_count_at_start as i64;
-    println!("{}", format!("Added {added_files} new files").green());
+    match added_files {
+        x if x <= 0 => println!("{}", "No new files added".yellow()),
+        1 => println!("{}", "Added 1 new file".green()),
+        _ => println!("{}", format!("Added {} new files", added_files).green()),
+    }
 
     Ok(())
 }
