@@ -13,7 +13,7 @@ use bandcamp_dl::utils::{
 #[derive(Parser)]
 #[command(author, about, version)]
 struct Args {
-    /// JSON string containing an array of URLs
+    /// A single URL or JSON string array of URLs
     urls: String,
 
     /// Overwrite existing files
@@ -33,33 +33,19 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let urls = parse_urls(&args.urls)?;
-
-    let output = args.output.clone().unwrap_or_default().trim().to_string();
-    let output_path = if output.is_empty() {
-        env::current_dir().context("Failed to get current working directory")?
-    } else {
-        PathBuf::from(output)
-    };
-    if !output_path.exists() {
-        anyhow::bail!(
-            "Output path does not exist or is not accessible: '{}'",
-            dunce::simplified(&output_path).display()
-        );
-    }
-
-    let absolute_output_path = dunce::canonicalize(output_path)?;
+    let output_path = resolve_output_path(args.output.as_deref())?;
 
     if args.verbose {
         println!(
             "Downloading {} items to {}",
             urls.len(),
-            get_relative_path_from_current_working_directory(&absolute_output_path).display()
+            get_relative_path_from_current_working_directory(&output_path).display()
         )
     }
 
-    let file_count_at_start = count_files_in_directory(&absolute_output_path)?;
+    let file_count_at_start = count_files_in_directory(&output_path)?;
 
-    let results = bandcamp_dl::download_urls(urls, &absolute_output_path, args.force).await;
+    let results = bandcamp_dl::download_urls(urls, &output_path, args.force).await;
     let mut successful: Vec<PathBuf> = Vec::new();
     for result in results.into_iter() {
         match result {
@@ -82,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
         bandcamp_dl::extract_zip_files(zip_files, args.force).await;
     }
 
-    let removed = remove_images_from_dir(&absolute_output_path)?;
+    let removed = remove_images_from_dir(&output_path)?;
     if !removed.is_empty() && args.verbose {
         println!("Removed images ({}):", removed.len());
         for file in removed.iter() {
@@ -93,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let file_count_at_end = count_files_in_directory(&absolute_output_path)?;
+    let file_count_at_end = count_files_in_directory(&output_path)?;
     let added_files = file_count_at_end as i64 - file_count_at_start as i64;
     match added_files {
         x if x <= 0 => println!("{}", "No new files added".yellow()),
@@ -102,6 +88,24 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_output_path(path: Option<&str>) -> anyhow::Result<PathBuf> {
+    let output = path.unwrap_or_default().trim().to_string();
+    let output_path = if output.is_empty() {
+        env::current_dir().context("Failed to get current working directory")?
+    } else {
+        PathBuf::from(output)
+    };
+    if !output_path.exists() {
+        anyhow::bail!(
+            "Output path does not exist or is not accessible: '{}'",
+            dunce::simplified(&output_path).display()
+        );
+    }
+
+    let absolute_output_path = dunce::canonicalize(output_path)?;
+    Ok(absolute_output_path)
 }
 
 fn parse_urls(urls: &str) -> anyhow::Result<Vec<String>> {
@@ -140,7 +144,7 @@ mod test_cli {
             ]"#,
         ]);
 
-        let urls: Vec<String> = serde_json::from_str(&args.urls).expect("Failed to parse URLs");
+        let urls: Vec<String> = parse_urls(&args.urls).expect("Failed to parse URLs");
         assert_eq!(urls.len(), 10);
         assert_eq!(
             urls,
@@ -179,7 +183,7 @@ mod test_cli {
             "--verbose",
         ]);
 
-        let urls: Vec<String> = serde_json::from_str(&args.urls).expect("Failed to parse URLs");
+        let urls: Vec<String> = parse_urls(&args.urls).expect("Failed to parse URLs");
         assert_eq!(
             urls,
             vec![

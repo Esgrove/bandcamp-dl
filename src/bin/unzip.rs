@@ -49,6 +49,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         println!("Extracting 1 zip file");
     };
+
     bandcamp_dl::extract_zip_files(zip_files, args.force).await;
 
     let file_count_at_end = count_files_in_directory(&input_path)?;

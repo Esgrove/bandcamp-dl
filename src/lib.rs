@@ -49,53 +49,6 @@ pub async fn download_urls(
     results
 }
 
-pub async fn download_file(
-    dir: &Path,
-    url: &str,
-    multi_progress: Arc<MultiProgress>,
-    overwrite: bool,
-) -> anyhow::Result<PathBuf> {
-    let response = reqwest::get(url).await?;
-    let headers = response.headers();
-    let mut filename =
-        get_filename(headers).with_context(|| format!("Failed to get filename for: {url}"))?;
-    let total_size = get_total_size(headers);
-
-    if filename.ends_with(".aiff") {
-        filename.pop();
-    }
-
-    let path = dir.join(&filename);
-    if path.exists() {
-        if !overwrite {
-            return Err(anyhow!("File already exists: {}", filename));
-        } else {
-            tokio::fs::remove_file(&path).await?
-        }
-    }
-
-    let mut file = File::create(&path)?;
-    let mut content = response.bytes_stream();
-
-    let progress_bar = multi_progress.add(ProgressBar::new(total_size));
-    progress_bar.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}")?
-            .progress_chars("##-"),
-    );
-    progress_bar.set_message(filename.to_string());
-
-    while let Some(chunk) = content.next().await {
-        let chunk = chunk?;
-        progress_bar.inc(chunk.len() as u64);
-        file.write_all(&chunk)?;
-    }
-
-    progress_bar.finish();
-
-    Ok(path)
-}
-
 pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
     let multi_progress = Arc::new(MultiProgress::new());
     let mut tasks = Vec::new();
@@ -125,7 +78,7 @@ pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
     }
 }
 
-pub async fn extract_zip_file(
+async fn extract_zip_file(
     path: PathBuf,
     multi_progress: Arc<MultiProgress>,
     overwrite: bool,
@@ -208,6 +161,53 @@ pub async fn extract_zip_file(
         Ok(())
     })
     .await?
+}
+
+async fn download_file(
+    dir: &Path,
+    url: &str,
+    multi_progress: Arc<MultiProgress>,
+    overwrite: bool,
+) -> anyhow::Result<PathBuf> {
+    let response = reqwest::get(url).await?;
+    let headers = response.headers();
+    let mut filename =
+        get_filename(headers).with_context(|| format!("Failed to get filename for: {url}"))?;
+    let total_size = get_total_size(headers);
+
+    if filename.ends_with(".aiff") {
+        filename.pop();
+    }
+
+    let path = dir.join(&filename);
+    if path.exists() {
+        if !overwrite {
+            return Err(anyhow!("File already exists: {}", filename));
+        } else {
+            tokio::fs::remove_file(&path).await?
+        }
+    }
+
+    let mut file = File::create(&path)?;
+    let mut content = response.bytes_stream();
+
+    let progress_bar = multi_progress.add(ProgressBar::new(total_size));
+    progress_bar.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}")?
+            .progress_chars("##-"),
+    );
+    progress_bar.set_message(filename.to_string());
+
+    while let Some(chunk) = content.next().await {
+        let chunk = chunk?;
+        progress_bar.inc(chunk.len() as u64);
+        file.write_all(&chunk)?;
+    }
+
+    progress_bar.finish();
+
+    Ok(path)
 }
 
 fn get_total_size(headers: &HeaderMap) -> u64 {
