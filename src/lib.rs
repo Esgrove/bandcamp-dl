@@ -221,7 +221,7 @@ fn get_total_size(headers: &HeaderMap) -> u64 {
 fn get_filename(headers: &HeaderMap) -> anyhow::Result<String> {
     headers
         .get(CONTENT_DISPOSITION)
-        .and_then(|value| value.to_str().ok())
+        .and_then(|value| std::str::from_utf8(value.as_bytes()).ok())
         .and_then(|content_disposition| RE_FILENAME.captures(content_disposition))
         .and_then(|captures| captures.get(1))
         .map(|filename| filename.as_str().to_string())
