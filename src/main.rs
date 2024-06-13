@@ -103,3 +103,69 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod test_cli {
+    use super::*;
+
+    #[test]
+    fn argument_url_deserialization() {
+        let args = Args::parse_from([
+            "test",
+            r#"[
+                "https://p4.bcbits.com/download/track/1b37d456848ecb79c2",
+                "https://p4.bcbits.com/download/track/156807d37379c36a35",
+                "https://p4.bcbits.com/download/track/1d231057b370614747",
+                "https://p4.bcbits.com/download/track/1d23267dc839a60375",
+                "https://p4.bcbits.com/download/track/159d2c2882254493a0",
+                "https://p4.bcbits.com/download/track/1c6e680dfda072ca82",
+                "https://p4.bcbits.com/download/track/11f650a2b8db1ef52f",
+                "https://p4.bcbits.com/download/album/178dd6dd97f4418b69",
+                "https://p4.bcbits.com/download/album/1e19efdce8d9084a55",
+                "https://p4.bcbits.com/download/track/1f20390aef121b1671"
+            ]"#,
+        ]);
+
+        let urls: Vec<String> = serde_json::from_str(&args.urls).expect("Failed to parse URLs");
+        assert_eq!(urls.len(), 10);
+        assert_eq!(
+            urls,
+            vec![
+                "https://p4.bcbits.com/download/track/1b37d456848ecb79c2",
+                "https://p4.bcbits.com/download/track/156807d37379c36a35",
+                "https://p4.bcbits.com/download/track/1d231057b370614747",
+                "https://p4.bcbits.com/download/track/1d23267dc839a60375",
+                "https://p4.bcbits.com/download/track/159d2c2882254493a0",
+                "https://p4.bcbits.com/download/track/1c6e680dfda072ca82",
+                "https://p4.bcbits.com/download/track/11f650a2b8db1ef52f",
+                "https://p4.bcbits.com/download/album/178dd6dd97f4418b69",
+                "https://p4.bcbits.com/download/album/1e19efdce8d9084a55",
+                "https://p4.bcbits.com/download/track/1f20390aef121b1671"
+            ]
+        );
+    }
+
+    #[test]
+    fn full_arguments() {
+        let args = Args::parse_from([
+            "test",
+            r#"["https://p4.bcbits.com/download/track/1", "https://p4.bcbits.com/download/track/2"]"#,
+            "--force",
+            "--output",
+            "output_path",
+            "--verbose",
+        ]);
+
+        let urls: Vec<String> = serde_json::from_str(&args.urls).expect("Failed to parse URLs");
+        assert_eq!(
+            urls,
+            vec![
+                "https://p4.bcbits.com/download/track/1",
+                "https://p4.bcbits.com/download/track/2"
+            ]
+        );
+        assert!(args.force);
+        assert!(args.verbose);
+        assert_eq!(args.output.as_deref(), Some("output_path"));
+    }
+}
