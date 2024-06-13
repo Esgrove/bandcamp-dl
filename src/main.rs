@@ -32,7 +32,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let urls: Vec<String> = serde_json::from_str(&args.urls).expect("Failed to parse URLs");
+    let urls = parse_urls(&args.urls)?;
 
     let output = args.output.clone().unwrap_or_default().trim().to_string();
     let output_path = if output.is_empty() {
@@ -104,6 +104,20 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn parse_urls(urls: &str) -> anyhow::Result<Vec<String>> {
+    let urls: Vec<String> = match serde_json::from_str(urls) {
+        Ok(urls) => urls,
+        Err(_) => {
+            if urls.starts_with("https://") {
+                vec![urls.to_string()]
+            } else {
+                anyhow::bail!("Failed to parse URLs from input string")
+            }
+        }
+    };
+    Ok(urls)
+}
+
 #[cfg(test)]
 mod test_cli {
     use super::*;
@@ -143,6 +157,15 @@ mod test_cli {
                 "https://p4.bcbits.com/download/track/1f20390aef121b1671"
             ]
         );
+    }
+
+    #[test]
+    fn argument_single_url_string() {
+        let args = Args::parse_from(["test", r#"https://p4.bcbits.com/download/album/10"#]);
+
+        let urls: Vec<String> = parse_urls(&args.urls).unwrap();
+        assert_eq!(urls.len(), 1);
+        assert_eq!(urls, vec!["https://p4.bcbits.com/download/album/10"]);
     }
 
     #[test]

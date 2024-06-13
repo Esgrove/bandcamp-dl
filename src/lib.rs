@@ -57,7 +57,8 @@ pub async fn download_file(
 ) -> anyhow::Result<PathBuf> {
     let response = reqwest::get(url).await?;
     let headers = response.headers();
-    let mut filename = get_filename(headers)?;
+    let mut filename =
+        get_filename(headers).with_context(|| format!("Failed to get filename for: {url}"))?;
     let total_size = get_total_size(headers);
 
     if filename.ends_with(".aiff") {
