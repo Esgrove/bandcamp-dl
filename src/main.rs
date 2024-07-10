@@ -1,7 +1,5 @@
-use std::env;
 use std::path::PathBuf;
 
-use anyhow::Context;
 use clap::Parser;
 use colored::Colorize;
 
@@ -30,7 +28,7 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let urls = parse_urls(&args.urls)?;
-    let output_path = resolve_output_path(args.output.as_deref())?;
+    let output_path = utils::resolve_output_path(args.output.as_deref())?;
 
     if args.verbose {
         println!(
@@ -82,32 +80,13 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let file_count_at_end = utils::count_files_in_directory(&output_path)?;
-    let added_files = file_count_at_end as i64 - file_count_at_start as i64;
-    match added_files {
-        x if x <= 0 => println!("{}", "No new files added".yellow()),
+    match file_count_at_end.saturating_sub(file_count_at_start) {
+        added if added <= 2 => println!("{}", format!("Added {} new files", added).green()),
         1 => println!("{}", "Added 1 new file".green()),
-        _ => println!("{}", format!("Added {} new files", added_files).green()),
+        _ => println!("{}", "No new files added".yellow()),
     }
 
     Ok(())
-}
-
-fn resolve_output_path(path: Option<&str>) -> anyhow::Result<PathBuf> {
-    let output = path.unwrap_or_default().trim().to_string();
-    let output_path = if output.is_empty() {
-        env::current_dir().context("Failed to get current working directory")?
-    } else {
-        PathBuf::from(output)
-    };
-    if !output_path.exists() {
-        anyhow::bail!(
-            "Output path does not exist or is not accessible: '{}'",
-            dunce::simplified(&output_path).display()
-        );
-    }
-
-    let absolute_output_path = dunce::canonicalize(output_path)?;
-    Ok(absolute_output_path)
 }
 
 fn parse_urls(urls: &str) -> anyhow::Result<Vec<String>> {

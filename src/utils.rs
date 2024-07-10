@@ -86,3 +86,23 @@ pub fn get_all_zip_files(paths: &[PathBuf]) -> Vec<PathBuf> {
         .map(PathBuf::from)
         .collect()
 }
+
+/// Get absolute path for output path.
+/// Uses current working directory if nothing was given.
+pub fn resolve_output_path(path: Option<&str>) -> anyhow::Result<PathBuf> {
+    let output = path.unwrap_or_default().trim().to_string();
+    let output_path = if output.is_empty() {
+        env::current_dir().context("Failed to get current working directory")?
+    } else {
+        PathBuf::from(output)
+    };
+    if !output_path.exists() {
+        anyhow::bail!(
+            "Output path does not exist or is not accessible: '{}'",
+            dunce::simplified(&output_path).display()
+        );
+    }
+
+    let absolute_output_path = dunce::canonicalize(output_path)?;
+    Ok(absolute_output_path)
+}
