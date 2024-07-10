@@ -16,15 +16,18 @@ use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH};
 use tokio::sync::{Semaphore, SemaphorePermit};
 use zip::ZipArchive;
 
+/// Regex to match filename in CONTENT_DISPOSITION header
 static RE_FILENAME: Lazy<Regex> = Lazy::new(|| Regex::new(r#"; filename="([^"]+)";"#).unwrap());
 
+/// Download given URLs concurrently.
+/// Returns a list of results with the filepaths for successful downloads.
 pub async fn download_urls(
     urls: Vec<String>,
     absolute_output_path: &Path,
     force: bool,
 ) -> Vec<Result<PathBuf, Error>> {
     let multi_progress = Arc::new(MultiProgress::new());
-    let semaphore = Arc::new(Semaphore::new(num_cpus::get() / 2));
+    let semaphore = create_semaphore_for_num_physical_cpus();
     let tasks: Vec<_> = urls
         .into_iter()
         .map(|url| {
@@ -49,10 +52,11 @@ pub async fn download_urls(
     results
 }
 
+/// Extract all zip files concurrently.
 pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
     let multi_progress = Arc::new(MultiProgress::new());
     let mut tasks = Vec::new();
-    let semaphore = Arc::new(Semaphore::new(num_cpus::get() / 2));
+    let semaphore = create_semaphore_for_num_physical_cpus();
     for zip_path in zip_files.into_iter() {
         let sem = Arc::clone(&semaphore);
         let progress_clone = Arc::clone(&multi_progress);
@@ -71,6 +75,7 @@ pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
         .map(|res| res.unwrap())
         .collect();
 
+    // Print errors if any.
     for result in results.iter() {
         if let Err(e) = result {
             eprintln!("{}", format!("Error: {}", e).red());
@@ -78,6 +83,7 @@ pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
     }
 }
 
+/// Extract a single zip file with its own progress bar.
 async fn extract_zip_file(
     path: PathBuf,
     multi_progress: Arc<MultiProgress>,
@@ -107,7 +113,7 @@ async fn extract_zip_file(
         progress_bar.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:50.magenta/blue} {pos:>3}/{len:3} {msg}")?
-                .progress_chars("##-"),
+                .progress_chars("=>-"),
         );
         progress_bar.set_message(zip_file_name);
 
@@ -163,6 +169,7 @@ async fn extract_zip_file(
     .await?
 }
 
+/// Download a single file with its own progress bar.
 async fn download_file(
     dir: &Path,
     url: &str,
@@ -195,7 +202,7 @@ async fn download_file(
     progress_bar.set_style(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}")?
-            .progress_chars("##-"),
+            .progress_chars("=>-"),
     );
     progress_bar.set_message(filename.to_string());
 
@@ -210,6 +217,8 @@ async fn download_file(
     Ok(path)
 }
 
+/// Get total file size from headers.
+/// Returns zero in case of failure.
 fn get_total_size(headers: &HeaderMap) -> u64 {
     headers
         .get(CONTENT_LENGTH)
@@ -218,6 +227,7 @@ fn get_total_size(headers: &HeaderMap) -> u64 {
         .unwrap_or(0)
 }
 
+/// Get full filename from headers.
 fn get_filename(headers: &HeaderMap) -> anyhow::Result<String> {
     headers
         .get(CONTENT_DISPOSITION)
@@ -226,4 +236,9 @@ fn get_filename(headers: &HeaderMap) -> anyhow::Result<String> {
         .and_then(|captures| captures.get(1))
         .map(|filename| filename.as_str().to_string())
         .ok_or_else(|| anyhow::anyhow!("Failed to get filename"))
+}
+
+/// Create a Semaphore with half the number of logical CPU cores available.
+fn create_semaphore_for_num_physical_cpus() -> Arc<Semaphore> {
+    Arc::new(Semaphore::new(num_cpus::get_physical()))
 }

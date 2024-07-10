@@ -5,10 +5,7 @@ use anyhow::Context;
 use clap::Parser;
 use colored::Colorize;
 
-use bandcamp_dl::utils::{
-    count_files_in_directory, get_all_zip_files, get_relative_path_from_current_working_directory,
-    remove_images_from_dir,
-};
+use bandcamp_dl::utils;
 
 #[derive(Parser)]
 #[command(author, about, version)]
@@ -39,11 +36,16 @@ async fn main() -> anyhow::Result<()> {
         println!(
             "Downloading {} items to {}",
             urls.len(),
-            get_relative_path_from_current_working_directory(&output_path).display()
-        )
+            utils::get_relative_path_from_current_working_directory(&output_path).display()
+        );
+        println!(
+            "Using {} concurrent executors (out of {})",
+            num_cpus::get_physical(),
+            num_cpus::get()
+        );
     }
 
-    let file_count_at_start = count_files_in_directory(&output_path)?;
+    let file_count_at_start = utils::count_files_in_directory(&output_path)?;
 
     let results = bandcamp_dl::download_urls(urls, &output_path, args.force).await;
     let mut successful: Vec<PathBuf> = Vec::new();
@@ -58,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let zip_files = get_all_zip_files(&successful);
+    let zip_files = utils::get_all_zip_files(&successful);
     if !zip_files.is_empty() {
         if zip_files.len() > 1 {
             println!("Extracting {} zip files", zip_files.len());
@@ -68,18 +70,18 @@ async fn main() -> anyhow::Result<()> {
         bandcamp_dl::extract_zip_files(zip_files, args.force).await;
     }
 
-    let removed = remove_images_from_dir(&output_path)?;
+    let removed = utils::remove_images_from_dir(&output_path)?;
     if !removed.is_empty() && args.verbose {
         println!("Removed images ({}):", removed.len());
         for file in removed.iter() {
             println!(
                 "  {}",
-                get_relative_path_from_current_working_directory(file).display()
+                utils::get_relative_path_from_current_working_directory(file).display()
             );
         }
     }
 
-    let file_count_at_end = count_files_in_directory(&output_path)?;
+    let file_count_at_end = utils::count_files_in_directory(&output_path)?;
     let added_files = file_count_at_end as i64 - file_count_at_start as i64;
     match added_files {
         x if x <= 0 => println!("{}", "No new files added".yellow()),
