@@ -22,7 +22,7 @@ use zip::ZipArchive;
 static RE_FILENAME: Lazy<Regex> = Lazy::new(|| Regex::new(r#"; filename="([^"]+)";"#).unwrap());
 
 /// Download given URLs concurrently.
-/// Returns a list of results with the filepaths for successful downloads.
+/// Returns a list of results with the file paths for successful downloads.
 pub async fn download_urls(
     urls: Vec<String>,
     absolute_output_path: &Path,
@@ -39,12 +39,12 @@ pub async fn download_urls(
         .into_iter()
         .map(|url| {
             let client = client.clone();
-            let mp = Arc::clone(&multi_progress);
+            let progress = Arc::clone(&multi_progress);
             let sem = Arc::clone(&semaphore);
             let path = absolute_output_path.to_path_buf();
             tokio::spawn(async move {
                 let permit: SemaphorePermit = sem.acquire().await.unwrap();
-                let result = download_file(&client, &path, &url, mp, force).await;
+                let result = download_file(&client, &path, &url, progress, force).await;
                 drop(permit);
                 result
             })
