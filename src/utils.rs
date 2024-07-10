@@ -78,7 +78,7 @@ pub fn count_files_in_directory<P: AsRef<Path>>(path: P) -> anyhow::Result<usize
     Ok(count)
 }
 
-/// Get all zip files from given directory.
+/// Get all zip files from the given paths.
 pub fn get_all_zip_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     paths
         .iter()
@@ -105,4 +105,20 @@ pub fn resolve_output_path(path: Option<&str>) -> anyhow::Result<PathBuf> {
 
     let absolute_output_path = dunce::canonicalize(output_path)?;
     Ok(absolute_output_path)
+}
+
+/// Remove all images from given directory.
+/// Print removed files with verbose flag.
+pub fn remove_images(directory: &Path, verbose: bool) -> anyhow::Result<()> {
+    let removed = remove_images_from_dir(directory)?;
+    if !removed.is_empty() && verbose {
+        println!("Removed images ({}):", removed.len());
+        for file in removed.iter() {
+            println!(
+                "  {}",
+                get_relative_path_from_current_working_directory(file).display()
+            );
+        }
+    }
+    Ok(())
 }

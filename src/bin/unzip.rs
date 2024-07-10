@@ -4,8 +4,6 @@ use std::path::PathBuf;
 use clap::Parser;
 use colored::Colorize;
 
-use bandcamp_dl::utils;
-
 #[derive(Parser)]
 #[command(author, about = "Extract all zip files concurrently", version)]
 struct Args {
@@ -24,7 +22,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let input_path = utils::resolve_path(args.input)?;
+    let input_path = bandcamp_dl::utils::resolve_path(args.input)?;
 
     if args.verbose {
         println!(
@@ -56,12 +54,13 @@ async fn main() -> anyhow::Result<()> {
         println!("Extracting 1 zip file");
     };
 
-    let file_count_at_start = utils::count_files_in_directory(&input_path)?;
+    let file_count_at_start = bandcamp_dl::utils::count_files_in_directory(&input_path)?;
 
     bandcamp_dl::extract_zip_files(zip_files, args.force).await;
+    bandcamp_dl::utils::remove_images(&input_path, args.verbose)?;
 
     if args.verbose {
-        let file_count_at_end = utils::count_files_in_directory(&input_path)?;
+        let file_count_at_end = bandcamp_dl::utils::count_files_in_directory(&input_path)?;
         let added_files = file_count_at_end as i64 - file_count_at_start as i64;
         println!("{}", format!("Added {added_files} new files").green());
     }

@@ -46,17 +46,12 @@ async fn main() -> anyhow::Result<()> {
     let file_count_at_start = utils::count_files_in_directory(&output_path)?;
 
     let results = bandcamp_dl::download_urls(urls, &output_path, args.force).await;
+
     let mut successful: Vec<PathBuf> = Vec::new();
-    for result in results.into_iter() {
-        match result {
-            Ok(path) => {
-                successful.push(path);
-            }
-            Err(e) => {
-                eprintln!("{}", format!("Error: {}", e).red());
-            }
-        }
-    }
+    results.into_iter().for_each(|result| match result {
+        Ok(path) => successful.push(path),
+        Err(e) => eprintln!("{}", format!("Error: {}", e).red()),
+    });
 
     let zip_files = utils::get_all_zip_files(&successful);
     if !zip_files.is_empty() {
@@ -68,16 +63,7 @@ async fn main() -> anyhow::Result<()> {
         bandcamp_dl::extract_zip_files(zip_files, args.force).await;
     }
 
-    let removed = utils::remove_images_from_dir(&output_path)?;
-    if !removed.is_empty() && args.verbose {
-        println!("Removed images ({}):", removed.len());
-        for file in removed.iter() {
-            println!(
-                "  {}",
-                utils::get_relative_path_from_current_working_directory(file).display()
-            );
-        }
-    }
+    utils::remove_images(&output_path, args.verbose)?;
 
     let file_count_at_end = utils::count_files_in_directory(&output_path)?;
     match file_count_at_end.saturating_sub(file_count_at_start) {
