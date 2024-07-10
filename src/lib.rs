@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Error};
 use colored::Colorize;
@@ -13,6 +14,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH};
+use reqwest::Client;
 use tokio::sync::{Semaphore, SemaphorePermit};
 use zip::ZipArchive;
 
@@ -26,17 +28,22 @@ pub async fn download_urls(
     absolute_output_path: &Path,
     force: bool,
 ) -> Vec<Result<PathBuf, Error>> {
+    let client = Client::builder()
+        .timeout(Duration::new(5, 0))
+        .build()
+        .expect("Failed to create client");
     let multi_progress = Arc::new(MultiProgress::new());
     let semaphore = create_semaphore_for_num_physical_cpus();
     let tasks: Vec<_> = urls
         .into_iter()
         .map(|url| {
+            let client = client.clone();
             let mp = Arc::clone(&multi_progress);
             let sem = Arc::clone(&semaphore);
             let path = absolute_output_path.to_path_buf();
             tokio::spawn(async move {
                 let permit: SemaphorePermit = sem.acquire().await.unwrap();
-                let result = download_file(&path, &url, mp, force).await;
+                let result = download_file(&client, &path, &url, mp, force).await;
                 drop(permit);
                 result
             })
@@ -171,12 +178,13 @@ async fn extract_zip_file(
 
 /// Download a single file with its own progress bar.
 async fn download_file(
+    client: &Client,
     dir: &Path,
     url: &str,
     multi_progress: Arc<MultiProgress>,
     overwrite: bool,
 ) -> anyhow::Result<PathBuf> {
-    let response = reqwest::get(url).await?;
+    let response = client.get(url).send().await?;
     let headers = response.headers();
     let mut filename =
         get_filename(headers).with_context(|| format!("Failed to get filename for: {url}"))?;
