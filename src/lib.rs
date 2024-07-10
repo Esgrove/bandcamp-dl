@@ -32,6 +32,7 @@ pub async fn download_urls(
         .timeout(Duration::new(5, 0))
         .build()
         .expect("Failed to create client");
+
     let multi_progress = Arc::new(MultiProgress::new());
     let semaphore = create_semaphore_for_num_physical_cpus();
     let tasks: Vec<_> = urls
@@ -66,10 +67,10 @@ pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
     let semaphore = create_semaphore_for_num_physical_cpus();
     for zip_path in zip_files.into_iter() {
         let sem = Arc::clone(&semaphore);
-        let progress_clone = Arc::clone(&multi_progress);
+        let progress = Arc::clone(&multi_progress);
         let task = tokio::spawn(async move {
             let permit = sem.acquire().await.unwrap();
-            let result = extract_zip_file(zip_path, progress_clone, overwrite).await;
+            let result = extract_zip_file(zip_path, progress, overwrite).await;
             drop(permit);
             result
         });
@@ -110,11 +111,7 @@ async fn extract_zip_file(
         let mut archive = ZipArchive::new(file)
             .with_context(|| format!("Failed to read zip archive: {}", zip_path.display()))?;
 
-        let zip_file_name = zip_path
-            .file_name()
-            .context("Failed to get zip file name")?
-            .to_string_lossy()
-            .to_string();
+        let zip_file_name = utils::get_filename_from_path(&zip_path)?;
 
         let progress_bar = multi_progress.add(ProgressBar::new(archive.len() as u64));
         progress_bar.set_style(
@@ -185,12 +182,22 @@ async fn download_file(
     overwrite: bool,
 ) -> anyhow::Result<PathBuf> {
     let response = client.get(url).send().await?;
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Request failed with status {} for: {url}",
+            response.status()
+        )
+    }
     let headers = response.headers();
+    let total_bytes = match response.content_length() {
+        Some(bytes) => bytes,
+        None => get_content_length_bytes(headers),
+    };
     let mut filename =
         get_filename(headers).with_context(|| format!("Failed to get filename for: {url}"))?;
-    let total_size = get_total_size(headers);
 
     if filename.ends_with(".aiff") {
+        // -> ".aif"
         filename.pop();
     }
 
@@ -206,7 +213,7 @@ async fn download_file(
     let mut file = File::create(&path)?;
     let mut content = response.bytes_stream();
 
-    let progress_bar = multi_progress.add(ProgressBar::new(total_size));
+    let progress_bar = multi_progress.add(ProgressBar::new(total_bytes));
     progress_bar.set_style(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}")?
@@ -219,7 +226,6 @@ async fn download_file(
         progress_bar.inc(chunk.len() as u64);
         file.write_all(&chunk)?;
     }
-
     progress_bar.finish();
 
     Ok(path)
@@ -227,7 +233,7 @@ async fn download_file(
 
 /// Get total file size from headers.
 /// Returns zero in case of failure.
-fn get_total_size(headers: &HeaderMap) -> u64 {
+fn get_content_length_bytes(headers: &HeaderMap) -> u64 {
     headers
         .get(CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
