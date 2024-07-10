@@ -3,7 +3,7 @@
 Rust CLI tool for downloading all Bandcamp purchases automatically (or any other JSON array of URLs).
 Downloads files concurrently, unzips any zip files to the download directory and removes all cover images.
 
-# Usage
+## Usage
 
 ```console
 CLI tool for downloading a list of URLS
@@ -11,7 +11,7 @@ CLI tool for downloading a list of URLS
 Usage: bcdl [OPTIONS] <URLS>
 
 Arguments:
-  <URLS>  JSON string containing an array of URLs
+  <URLS>  A single URL or JSON string array of URLs
 
 Options:
   -f, --force          Overwrite existing files
@@ -44,4 +44,23 @@ bcdl '[
     "https://p4.bcbits.com/...",
     "https://p4.bcbits.com/..."
 ]'
+```
+
+## Unzip utility
+
+Separate binary for just unzipping all files under a given dir or current working dir if none given.
+
+```console
+Extract all zip files concurrently
+
+Usage: bcdl-zip [OPTIONS] [INPUT]
+
+Arguments:
+  [INPUT]  Optional input path
+
+Options:
+  -f, --force    Overwrite existing files
+  -v, --verbose  Verbose output
+  -h, --help     Print help
+  -V, --version  Print version
 ```
