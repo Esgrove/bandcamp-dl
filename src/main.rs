@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
 
     let file_count_at_end = utils::count_files_in_directory(&output_path)?;
     match file_count_at_end.saturating_sub(file_count_at_start) {
-        added if added <= 2 => println!("{}", format!("Added {} new files", added).green()),
+        added if added >= 2 => println!("{}", format!("Added {} new files", added).green()),
         1 => println!("{}", "Added 1 new file".green()),
         _ => println!("{}", "No new files added".yellow()),
     }
