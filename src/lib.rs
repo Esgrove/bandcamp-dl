@@ -29,7 +29,7 @@ pub async fn download_urls(
     force: bool,
 ) -> Vec<Result<PathBuf, Error>> {
     let client = Client::builder()
-        .timeout(Duration::new(5, 0))
+        .connect_timeout(Duration::new(5, 0))
         .build()
         .expect("Failed to create client");
 
