@@ -1,6 +1,7 @@
-use anyhow::Context;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
+
+use anyhow::Context;
 
 /// Resolves the provided path to a directory or file to an absolute path.
 ///

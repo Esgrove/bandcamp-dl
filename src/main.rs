@@ -75,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Parse URL input argument string to a list of URLs.
 fn parse_urls(urls: &str) -> anyhow::Result<Vec<String>> {
     let urls: Vec<String> = match serde_json::from_str(urls) {
         Ok(urls) => urls,

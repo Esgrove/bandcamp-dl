@@ -21,6 +21,12 @@ use zip::ZipArchive;
 /// Regex to match filename in CONTENT_DISPOSITION header
 static RE_FILENAME: Lazy<Regex> = Lazy::new(|| Regex::new(r#"; filename="([^"]+)";"#).unwrap());
 
+const PROGRESS_BAR_CHARS: &str = "=>-";
+const PROGRESS_BAR_DOWNLOAD_TEMPLATE: &str =
+    "[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}";
+const PROGRESS_BAR_UNZIP_TEMPLATE: &str =
+    "[{elapsed_precise}] {bar:50.magenta/blue} {pos:>3}/{len:3} {msg}";
+
 /// Download given URLs concurrently.
 /// Returns a list of results with the file paths for successful downloads.
 pub async fn download_urls(
@@ -116,8 +122,8 @@ async fn extract_zip_file(
         let progress_bar = multi_progress.add(ProgressBar::new(archive.len() as u64));
         progress_bar.set_style(
             ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:50.magenta/blue} {pos:>3}/{len:3} {msg}")?
-                .progress_chars("=>-"),
+                .template(PROGRESS_BAR_UNZIP_TEMPLATE)?
+                .progress_chars(PROGRESS_BAR_CHARS),
         );
         progress_bar.set_message(zip_file_name);
 
@@ -216,8 +222,8 @@ async fn download_file(
     let progress_bar = multi_progress.add(ProgressBar::new(total_bytes));
     progress_bar.set_style(
         ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}")?
-            .progress_chars("=>-"),
+            .template(PROGRESS_BAR_DOWNLOAD_TEMPLATE)?
+            .progress_chars(PROGRESS_BAR_CHARS),
     );
     progress_bar.set_message(filename.to_string());
 
@@ -252,6 +258,7 @@ fn get_filename(headers: &HeaderMap) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("Failed to get filename"))
 }
 
+#[inline]
 /// Create a Semaphore with half the number of logical CPU cores available.
 fn create_semaphore_for_num_physical_cpus() -> Arc<Semaphore> {
     Arc::new(Semaphore::new(num_cpus::get_physical()))
