@@ -1,8 +1,5 @@
 pub mod utils;
 
-use std::fs;
-use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +12,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH};
 use reqwest::Client;
+use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Semaphore, SemaphorePermit};
 use zip::ZipArchive;
 
@@ -111,7 +109,7 @@ async fn extract_zip_file(
     let zip_path = path.clone();
     // Use spawn_blocking to avoid blocking the async runtime
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-        let file = File::open(&zip_path)
+        let file = std::fs::File::open(&zip_path)
             .with_context(|| format!("Failed to open zip file: {}", zip_path.display()))?;
 
         let mut archive = ZipArchive::new(file)
@@ -146,13 +144,13 @@ async fn extract_zip_file(
             }
 
             if file.is_dir() {
-                fs::create_dir_all(&output_path).with_context(|| {
+                std::fs::create_dir_all(&output_path).with_context(|| {
                     format!("Failed to create directory: {}", output_path.display())
                 })?;
             } else {
                 if let Some(p) = output_path.parent() {
                     if !p.exists() {
-                        fs::create_dir_all(p).with_context(|| {
+                        std::fs::create_dir_all(p).with_context(|| {
                             format!("Failed to create parent directory: {}", p.display())
                         })?;
                     }
@@ -160,7 +158,7 @@ async fn extract_zip_file(
                 if output_path.exists() && !overwrite {
                     continue;
                 }
-                let mut output_file = File::create(&output_path).with_context(|| {
+                let mut output_file = std::fs::File::create(&output_path).with_context(|| {
                     format!("Failed to create output file: {}", output_path.display())
                 })?;
                 std::io::copy(&mut file, &mut output_file).with_context(|| {
@@ -216,7 +214,8 @@ async fn download_file(
         }
     }
 
-    let mut file = File::create(&path)?;
+    let file = tokio::fs::File::create(&path).await?;
+    let mut writer = BufWriter::new(file);
     let mut content = response.bytes_stream();
 
     let progress_bar = multi_progress.add(ProgressBar::new(total_bytes));
@@ -230,8 +229,9 @@ async fn download_file(
     while let Some(chunk) = content.next().await {
         let chunk = chunk?;
         progress_bar.inc(chunk.len() as u64);
-        file.write_all(&chunk)?;
+        writer.write_all(&chunk).await?;
     }
+    writer.flush().await?;
     progress_bar.finish();
 
     Ok(path)
