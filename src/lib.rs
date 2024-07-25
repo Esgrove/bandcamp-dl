@@ -2,13 +2,13 @@ pub mod utils;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Error};
 use colored::Colorize;
 use futures::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH};
 use reqwest::Client;
@@ -17,7 +17,8 @@ use tokio::sync::{Semaphore, SemaphorePermit};
 use zip::ZipArchive;
 
 /// Regex to match filename in CONTENT_DISPOSITION header
-static RE_FILENAME: Lazy<Regex> = Lazy::new(|| Regex::new(r#"; filename="([^"]+)";"#).unwrap());
+static RE_FILENAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"; filename="([^"]+)";"#).unwrap());
 
 const PROGRESS_BAR_CHARS: &str = "=>-";
 const PROGRESS_BAR_DOWNLOAD_TEMPLATE: &str =
