@@ -22,9 +22,9 @@ static RE_FILENAME: LazyLock<Regex> =
 
 const PROGRESS_BAR_CHARS: &str = "=>-";
 const PROGRESS_BAR_DOWNLOAD_TEMPLATE: &str =
-    "[{elapsed_precise}] {bar:50.cyan/blue} [{percent:>3}%] {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}";
+    "[{elapsed_precise}] {bar:40.cyan/blue} [{percent:>3}%] {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}";
 const PROGRESS_BAR_UNZIP_TEMPLATE: &str =
-    "[{elapsed_precise}] {bar:50.magenta/blue} {pos:>3}/{len:3} {msg}";
+    "[{elapsed_precise}] {bar:40.magenta/blue} {pos:>3}/{len:3} {msg}";
 
 /// Download given URLs concurrently.
 /// Returns a list of results with the file paths for successful downloads.
