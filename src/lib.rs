@@ -133,9 +133,11 @@ async fn extract_zip_file(
                     zip_path.display()
                 )
             })?;
-            let file_path = file
-                .enclosed_name()
-                .ok_or_else(|| anyhow::anyhow!("Zip file contains unsafe path: {}", file.name()))?;
+
+            let file_path = match file.enclosed_name() {
+                None => continue,
+                Some(path) => path,
+            };
 
             let mut output_path = extract_to.join(file_path);
             if let Some(extension) = output_path.extension() {
