@@ -37,7 +37,7 @@ pub fn get_relative_path_from_current_working_directory(path: &Path) -> PathBuf 
                     .to_path_buf()
             }
         })
-        .unwrap_or(path.to_path_buf())
+        .unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Move all JPEG and PNG files in given dir to trash.
@@ -50,14 +50,14 @@ pub fn remove_images_from_dir(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
         if let Some(extension) = path
             .extension()
             .and_then(|ext| ext.to_str())
-            .map(|ext_str| ext_str.to_lowercase())
+            .map(str::to_lowercase)
         {
             match extension.as_str() {
                 "jpg" | "jpeg" | "png" => {
                     trash::delete(&path).with_context(|| {
                         format!("Failed to move image to trash: {}", path.display())
                     })?;
-                    removed.push(path.to_path_buf());
+                    removed.push(path.clone());
                 }
                 _ => (),
             }
@@ -114,7 +114,7 @@ pub fn remove_images(directory: &Path, verbose: bool) -> anyhow::Result<()> {
     let removed = remove_images_from_dir(directory)?;
     if !removed.is_empty() && verbose {
         println!("Removed images ({}):", removed.len());
-        for file in removed.iter() {
+        for file in &removed {
             println!(
                 "  {}",
                 get_relative_path_from_current_working_directory(file).display()

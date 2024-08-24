@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     let mut successful: Vec<PathBuf> = Vec::new();
     results.into_iter().for_each(|result| match result {
         Ok(path) => successful.push(path),
-        Err(e) => eprintln!("{}", format!("Error: {}", e).red()),
+        Err(e) => eprintln!("{}", format!("Error: {e}").red()),
     });
 
     let zip_files = utils::get_all_zip_files(&successful);
@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
 
     let file_count_at_end = utils::count_files_in_directory(&output_path)?;
     match file_count_at_end.saturating_sub(file_count_at_start) {
-        added if added >= 2 => println!("{}", format!("Added {} new files", added).green()),
+        added if added >= 2 => println!("{}", format!("Added {added} new files").green()),
         1 => println!("{}", "Added 1 new file".green()),
         _ => println!("{}", "No new files added".yellow()),
     }
@@ -133,7 +133,7 @@ mod test_cli {
 
     #[test]
     fn argument_single_url_string() {
-        let args = Args::parse_from(["test", r#"https://p4.bcbits.com/download/album/10"#]);
+        let args = Args::parse_from(["test", r"https://p4.bcbits.com/download/album/10"]);
 
         let urls: Vec<String> = parse_urls(&args.urls).unwrap();
         assert_eq!(urls.len(), 1);

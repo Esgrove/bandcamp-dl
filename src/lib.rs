@@ -16,9 +16,9 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Semaphore, SemaphorePermit};
 use zip::ZipArchive;
 
-/// Regex to match filename in CONTENT_DISPOSITION header
+/// Regex to match filename in `CONTENT_DISPOSITION` header
 static RE_FILENAME: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"; filename="([^"]+)";"#).unwrap());
+    LazyLock::new(|| Regex::new(r#"; filename="([^"]+)";"#).expect("Filename regex failed"));
 
 const PROGRESS_BAR_CHARS: &str = "=>-";
 const PROGRESS_BAR_DOWNLOAD_TEMPLATE: &str =
@@ -48,7 +48,10 @@ pub async fn download_urls(
             let sem = Arc::clone(&semaphore);
             let path = absolute_output_path.to_path_buf();
             tokio::spawn(async move {
-                let permit: SemaphorePermit = sem.acquire().await.unwrap();
+                let permit: SemaphorePermit = sem
+                    .acquire()
+                    .await
+                    .expect("Failed to acquire permit for download");
                 let result = download_file(&client, &path, &url, progress, force).await;
                 drop(permit);
                 result
@@ -59,7 +62,7 @@ pub async fn download_urls(
     let results: Vec<Result<PathBuf, _>> = futures::future::join_all(tasks)
         .await
         .into_iter()
-        .map(|res| res.unwrap())
+        .map(|res| res.expect("Donwload future failed"))
         .collect();
 
     results
@@ -70,11 +73,14 @@ pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
     let multi_progress = Arc::new(MultiProgress::new());
     let mut tasks = Vec::new();
     let semaphore = create_semaphore_for_num_physical_cpus();
-    for zip_path in zip_files.into_iter() {
+    for zip_path in zip_files {
         let sem = Arc::clone(&semaphore);
         let progress = Arc::clone(&multi_progress);
         let task = tokio::spawn(async move {
-            let permit = sem.acquire().await.unwrap();
+            let permit = sem
+                .acquire()
+                .await
+                .expect("Failed to acquire permit for unzip");
             let result = extract_zip_file(zip_path, progress, overwrite).await;
             drop(permit);
             result
@@ -85,13 +91,13 @@ pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
     let results: Vec<Result<(), _>> = futures::future::join_all(tasks)
         .await
         .into_iter()
-        .map(|res| res.unwrap())
+        .map(|res| res.expect("Unzip future failed"))
         .collect();
 
     // Print errors if any.
-    for result in results.iter() {
+    for result in &results {
         if let Err(e) = result {
-            eprintln!("{}", format!("Error: {}", e).red());
+            eprintln!("{}", format!("Error: {e}").red());
         }
     }
 }
@@ -196,10 +202,9 @@ async fn download_file(
         )
     }
     let headers = response.headers();
-    let total_bytes = match response.content_length() {
-        Some(bytes) => bytes,
-        None => get_content_length_bytes(headers),
-    };
+    let total_bytes = response
+        .content_length()
+        .map_or_else(|| get_content_length_bytes(headers), |bytes| bytes);
     let mut filename =
         get_filename(headers).with_context(|| format!("Failed to get filename for: {url}"))?;
 
@@ -212,9 +217,8 @@ async fn download_file(
     if path.exists() {
         if !overwrite {
             return Err(anyhow!("File already exists: {}", filename));
-        } else {
-            tokio::fs::remove_file(&path).await?
         }
+        tokio::fs::remove_file(&path).await?;
     }
 
     let file = tokio::fs::File::create(&path).await?;
