@@ -64,3 +64,7 @@ Options:
   -h, --help     Print help
   -V, --version  Print version
 ```
+
+## TODO
+
+- Unzip each downloaded zip immediately without waiting for all downloads to finish first.
