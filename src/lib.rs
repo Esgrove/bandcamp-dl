@@ -69,14 +69,14 @@ pub async fn download_urls(
 }
 
 /// Extract all zip files concurrently.
-pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
+pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) -> usize {
     let multi_progress = Arc::new(MultiProgress::new());
     let mut tasks = Vec::new();
     let semaphore = create_semaphore_for_num_physical_cpus();
     for zip_path in zip_files {
         let sem = Arc::clone(&semaphore);
         let progress = Arc::clone(&multi_progress);
-        let task = tokio::spawn(async move {
+        tasks.push(tokio::spawn(async move {
             let permit = sem
                 .acquire()
                 .await
@@ -84,22 +84,27 @@ pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) {
             let result = extract_zip_file(zip_path, progress, overwrite).await;
             drop(permit);
             result
-        });
-        tasks.push(task);
+        }));
     }
 
-    let results: Vec<Result<(), _>> = futures::future::join_all(tasks)
+    let results: Vec<Result<usize, _>> = futures::future::join_all(tasks)
         .await
         .into_iter()
         .map(|res| res.expect("Unzip future failed"))
         .collect();
 
     // Print errors if any.
-    for result in &results {
-        if let Err(e) = result {
-            eprintln!("{}", format!("Error: {e}").red());
-        }
-    }
+    let total_unzipped_files: usize = results
+        .into_iter()
+        .map(|result| {
+            result.unwrap_or_else(|e| {
+                eprintln!("{}", format!("Error: {e}").red());
+                0
+            })
+        })
+        .sum();
+
+    total_unzipped_files
 }
 
 /// Extract a single zip file with its own progress bar.
@@ -107,7 +112,7 @@ async fn extract_zip_file(
     path: PathBuf,
     multi_progress: Arc<MultiProgress>,
     overwrite: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<usize> {
     let extract_to = path
         .parent()
         .context("Failed to get parent dir")?
@@ -115,7 +120,7 @@ async fn extract_zip_file(
 
     let zip_path = path.clone();
     // Use spawn_blocking to avoid blocking the async runtime
-    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
         let file = std::fs::File::open(&zip_path)
             .with_context(|| format!("Failed to open zip file: {}", zip_path.display()))?;
 
@@ -123,8 +128,9 @@ async fn extract_zip_file(
             .with_context(|| format!("Failed to read zip archive: {}", zip_path.display()))?;
 
         let zip_file_name = utils::get_filename_from_path(&zip_path)?;
+        let total_files = archive.len();
 
-        let progress_bar = multi_progress.add(ProgressBar::new(archive.len() as u64));
+        let progress_bar = multi_progress.add(ProgressBar::new(total_files as u64));
         progress_bar.set_style(
             ProgressStyle::default_bar()
                 .template(PROGRESS_BAR_UNZIP_TEMPLATE)?
@@ -181,7 +187,7 @@ async fn extract_zip_file(
         }
         progress_bar.finish();
         trash::delete(&zip_path).context("Failed to move zip file to trash")?;
-        Ok(())
+        Ok(total_files)
     })
     .await?
 }

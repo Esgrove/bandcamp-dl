@@ -60,7 +60,10 @@ async fn main() -> anyhow::Result<()> {
         } else {
             println!("Extracting 1 zip file");
         };
-        bandcamp_dl::extract_zip_files(zip_files, args.force).await;
+        let num_files = bandcamp_dl::extract_zip_files(zip_files, args.force).await;
+        if args.verbose {
+            println!("Unzipped {num_files} files");
+        }
     }
 
     utils::remove_images(&output_path, args.verbose)?;
