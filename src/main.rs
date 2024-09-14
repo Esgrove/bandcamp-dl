@@ -45,7 +45,12 @@ async fn main() -> anyhow::Result<()> {
 
     let file_count_at_start = utils::count_files_in_directory(&output_path)?;
 
-    let results = bandcamp_dl::download_urls(urls, &output_path, args.force).await;
+    let results = match bandcamp_dl::download_urls(urls, &output_path, args.force).await {
+        Ok(r) => r,
+        Err(e) => {
+            anyhow::bail!("{e}")
+        }
+    };
 
     let mut successful: Vec<PathBuf> = Vec::new();
     results.into_iter().for_each(|result| match result {
@@ -66,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // TODO: use count. Get number of downloaded files and calculate total from that.
     utils::remove_images(&output_path, args.verbose)?;
 
     let file_count_at_end = utils::count_files_in_directory(&output_path)?;

@@ -32,11 +32,11 @@ pub async fn download_urls(
     urls: Vec<String>,
     absolute_output_path: &Path,
     force: bool,
-) -> Vec<Result<PathBuf, Error>> {
+) -> anyhow::Result<Vec<Result<PathBuf, Error>>> {
     let client = Client::builder()
         .connect_timeout(Duration::new(5, 0))
         .build()
-        .expect("Failed to create client");
+        .context("Failed to create client")?;
 
     let multi_progress = Arc::new(MultiProgress::new());
     let semaphore = create_semaphore_for_num_physical_cpus();
@@ -62,10 +62,10 @@ pub async fn download_urls(
     let results: Vec<Result<PathBuf, _>> = futures::future::join_all(tasks)
         .await
         .into_iter()
-        .map(|res| res.expect("Donwload future failed"))
+        .map(|res| res.expect("Download future failed"))
         .collect();
 
-    results
+    Ok(results)
 }
 
 /// Extract all zip files concurrently.
@@ -87,15 +87,10 @@ pub async fn extract_zip_files(zip_files: Vec<PathBuf>, overwrite: bool) -> usiz
         }));
     }
 
-    let results: Vec<Result<usize, _>> = futures::future::join_all(tasks)
+    let total_unzipped_files: usize = futures::future::join_all(tasks)
         .await
         .into_iter()
         .map(|res| res.expect("Unzip future failed"))
-        .collect();
-
-    // Print errors if any.
-    let total_unzipped_files: usize = results
-        .into_iter()
         .map(|result| {
             result.unwrap_or_else(|e| {
                 eprintln!("{}", format!("Error: {e}").red());
@@ -214,6 +209,8 @@ async fn download_file(
     let mut filename =
         get_filename(headers).with_context(|| format!("Failed to get filename for: {url}"))?;
 
+    // Bandcamp file extensions are always in lowercase
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
     if filename.ends_with(".aiff") {
         // -> ".aif"
         filename.pop();

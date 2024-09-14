@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
 
     if args.verbose {
         let file_count_at_end = bandcamp_dl::utils::count_files_in_directory(&input_path)?;
-        let added_files = file_count_at_end as i64 - file_count_at_start as i64;
+        let added_files = file_count_at_end.saturating_sub(file_count_at_start);
         println!("{}", format!("Added {added_files} new files").green());
     }
 
