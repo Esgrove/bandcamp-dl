@@ -14,7 +14,7 @@ default-run = "bcdl"
 [dependencies]
 anyhow = "1.0.94"
 clap = { version = "4.5.23", features = ["derive"] }
-colored = "2.1.0"
+colored = "2.2.0"
 dunce = "1.0.5"
 futures = "0.3.31"
 indicatif = { version = "0.17.9", features = ["tokio", "futures"] }
