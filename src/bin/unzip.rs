@@ -1,3 +1,5 @@
+use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -6,8 +8,7 @@ use anyhow::Result;
 use clap::Parser;
 use colored::Colorize;
 
-static ZIP_EXTENSION: LazyLock<Option<&std::ffi::OsStr>> =
-    LazyLock::new(|| Some(std::ffi::OsStr::new("zip")));
+static ZIP_EXTENSION: LazyLock<Option<OsString>> = LazyLock::new(|| Some(OsString::from("zip")));
 
 #[derive(Parser)]
 #[command(author, about = "Extract all zip files concurrently", version)]
@@ -76,7 +77,7 @@ fn gather_zip_files(input_path: &PathBuf, recursive: bool) -> Result<Vec<PathBuf
             .filter_map(|entry| {
                 let entry = entry.ok()?;
                 let path = entry.path();
-                if path.extension() == *ZIP_EXTENSION {
+                if path.extension().map(OsStr::to_ascii_lowercase) == *ZIP_EXTENSION {
                     Some(path)
                 } else {
                     None
@@ -94,7 +95,7 @@ fn gather_zip_files_recursive(dir: &Path) -> Result<Vec<PathBuf>> {
             let path = entry.path();
             if path.is_dir() {
                 zip_files.extend(gather_zip_files_recursive(&path)?);
-            } else if path.extension() == *ZIP_EXTENSION {
+            } else if path.extension().map(OsStr::to_ascii_lowercase) == *ZIP_EXTENSION {
                 zip_files.push(path);
             }
         }
