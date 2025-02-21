@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Error};
+use anyhow::{Context, Error, anyhow};
 use colored::Colorize;
 use futures::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use regex::Regex;
-use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_LENGTH};
 use reqwest::Client;
+use reqwest::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, HeaderMap};
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Semaphore, SemaphorePermit};
 use zip::ZipArchive;
@@ -21,8 +21,7 @@ static RE_FILENAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"; filename="([^"]+)";"#).expect("Filename regex failed"));
 
 const PROGRESS_BAR_CHARS: &str = "=>-";
-const PROGRESS_BAR_DOWNLOAD_TEMPLATE: &str =
-    "[{elapsed_precise}] {bar:40.cyan/blue} [{percent:>3}%] {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}";
+const PROGRESS_BAR_DOWNLOAD_TEMPLATE: &str = "[{elapsed_precise}] {bar:40.cyan/blue} [{percent:>3}%] {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}";
 const PROGRESS_BAR_UNZIP_TEMPLATE: &str =
     "[{elapsed_precise}] {bar:40.magenta/blue} {pos:>3}/{len:3} {msg}";
 
