@@ -44,7 +44,8 @@ async fn main() -> anyhow::Result<()> {
 
     let zip_files = gather_zip_files(&input_path, args.recursive)?;
     if zip_files.is_empty() {
-        anyhow::bail!("No zip files found")
+        println!("No zip files found");
+        return Ok(());
     }
 
     if zip_files.len() > 1 {
