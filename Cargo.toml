@@ -42,7 +42,7 @@ tokio = { version = "1.43.0", features = [
     "time",
 ] }
 trash = "5.2.1"
-zip = "2.2.2"
+zip = "2.2.3"
 
 [[bin]]
 name = "bcdl"
