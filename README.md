@@ -23,8 +23,8 @@ Options:
 
 ## Download and unzip Bandcamp purchases
 
-First get all Bandcamp download links from the purchase download page with Chrome DevTools.
-Open Chrome DevTools console and run this to get all the links from the page:
+First get all Bandcamp download links from the purchase download page with a browser developer console.
+Run this to get all the links from the page:
 
 ```javascript
 var links = Array.from(document.querySelectorAll('a'))
@@ -67,4 +67,5 @@ Options:
 
 ## TODO
 
-- Unzip each downloaded zip immediately without waiting for all downloads to finish first.
+- Unzip each downloaded zip immediately without waiting for all downloads to finish first
+- More robust file count calculation method
