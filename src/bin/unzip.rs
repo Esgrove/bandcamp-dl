@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
         println!("Extracting {} zip files", zip_files.len());
     } else {
         println!("Extracting 1 zip file");
-    };
+    }
 
     // TODO: fix for recursive
     // Move to extract and return number of files added in total

@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
             println!("Extracting {} zip files", zip_files.len());
         } else {
             println!("Extracting 1 zip file");
-        };
+        }
         let num_files = bandcamp_dl::extract_zip_files(zip_files, args.force).await;
         if args.verbose {
             println!("Unzipped {num_files} files");
