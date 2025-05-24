@@ -3,6 +3,16 @@
 Rust CLI tool for downloading all Bandcamp purchases automatically (or any other JSON array of URLs).
 Downloads files concurrently, unzips any zip files to the download directory and removes all cover images.
 
+## Build
+
+Using the provided scripts:
+
+```shell
+./build.sh
+
+./install.sh
+```
+
 ## Usage
 
 ```console

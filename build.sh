@@ -11,19 +11,17 @@ USAGE="Usage: $0 [OPTIONS]
 Build the Rust CLI tool.
 
 OPTIONS: All options are optional
-    --help
-        Display these instructions.
-
-    --verbose
-        Display commands being executed."
+    -h | --help       Display these instructions.
+    -v | --verbose    Display commands being executed.
+"
+export USAGE
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --help)
-            echo "$USAGE"
-            exit 1
+        -h | --help)
+            print_usage_and_exit
             ;;
-        --verbose)
+        -v | --verbose)
             set -x
             ;;
     esac
@@ -31,7 +29,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$(command -v cargo)" ]; then
-    print_error_and_exit "Cargo not found in path. Maybe install rustup?"
+    print_error_and_exit "Cargo not found in path. Install with https://rustup.rs/"
 fi
 
 cd "$REPO_ROOT"
