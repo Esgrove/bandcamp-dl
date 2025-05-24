@@ -24,6 +24,10 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     strategy:
@@ -57,6 +61,7 @@ jobs:
       # Ring compile fails on macOS runner with target-cpu=native
       # https://github.com/briansmith/ring/discussions/2528
       - name: Remove cargo config
+        if: runner.os == 'macOS'
         run: rm -f .cargo/config.toml
 
       - name: Build
