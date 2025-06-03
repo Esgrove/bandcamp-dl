@@ -1,6 +1,6 @@
 [package]
 name = "bandcamp-dl"
-version = "1.6.6"
+version = "1.7.0"
 edition = "2024"
 authors = [ "Esgrove <esgrove@outlook.com>" ]
 description = "CLI tool for downloading a list of URLS"
@@ -32,7 +32,7 @@ name = "bcdl"
 path = "src/main.rs"
 
 [[bin]]
-name = "bzip"
+name = "bczip"
 path = "src/bin/unzip.rs"
 
 [profile.dev]
