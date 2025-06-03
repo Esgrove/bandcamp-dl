@@ -37,9 +37,9 @@ First get all Bandcamp download links from the purchase download page with a bro
 Run this to get all the links from the page:
 
 ```javascript
-var links = Array.from(document.querySelectorAll('a'))
-    .filter(link => link.href.startsWith('https://p4.bcbits.com'))
-    .map(link => link.href);
+var links = Array.from(document.querySelectorAll("a"))
+  .filter((link) => link.href.startsWith("https://p4.bcbits.com"))
+  .map((link) => link.href);
 console.log(links);
 ```
 
@@ -63,16 +63,17 @@ Separate binary for just unzipping all files under a given dir or current workin
 ```console
 Extract all zip files concurrently
 
-Usage: bcdl-zip [OPTIONS] [INPUT]
+Usage: bczip [OPTIONS] [INPUT]
 
 Arguments:
   [INPUT]  Optional input path
 
 Options:
-  -f, --force    Overwrite existing files
-  -v, --verbose  Verbose output
-  -h, --help     Print help
-  -V, --version  Print version
+  -f, --force      Overwrite existing files
+  -r, --recursive  Get zip files recursively
+  -v, --verbose    Verbose output
+  -h, --help       Print help
+  -V, --version    Print version
 ```
 
 ## TODO
