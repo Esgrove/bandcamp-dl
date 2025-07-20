@@ -145,7 +145,20 @@ async fn extract_zip_file(
                 Some(path) => path,
             };
 
-            let mut output_path = extract_to.join(file_path);
+            // Sanitize each component of the path
+            let sanitized_path: PathBuf = file_path
+                .components()
+                .map(|component| {
+                    if let std::path::Component::Normal(name) = component {
+                        PathBuf::from(utils::sanitize_filename(&name.to_string_lossy()))
+                    } else {
+                        PathBuf::from(component.as_os_str())
+                    }
+                })
+                .collect();
+
+            let mut output_path = extract_to.join(sanitized_path);
+
             if let Some(extension) = output_path.extension() {
                 if extension == "aiff" {
                     output_path.set_extension("aif");

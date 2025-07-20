@@ -135,3 +135,18 @@ pub fn get_filename_from_path(path: &Path) -> anyhow::Result<String> {
         .replace('\u{FFFD}', "");
     Ok(file_name)
 }
+
+/// Sanitize filename by replacing invalid characters with underscores for cross-platform compatibility.
+///
+/// Windows invalid: `< > : " / \ | ? *`
+///
+/// macOS / Unix invalid: `: /`
+#[must_use]
+pub fn sanitize_filename(filename: &str) -> String {
+    filename
+        .replace('\u{FFFD}', "")
+        .replace('"', "''")
+        .replace(&['<', '>', ':', '/', '\\', '|', '?', '*'][..], "_")
+        // Replace nulls and control characters
+        .replace(|c: char| c.is_control(), "_")
+}
