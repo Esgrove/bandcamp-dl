@@ -140,9 +140,8 @@ async fn extract_zip_file(
                 )
             })?;
 
-            let file_path = match file.enclosed_name() {
-                None => continue,
-                Some(path) => path,
+            let Some(file_path) = file.enclosed_name() else {
+                continue;
             };
 
             // Sanitize each component of the path

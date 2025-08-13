@@ -53,10 +53,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mut successful: Vec<PathBuf> = Vec::new();
-    results.into_iter().for_each(|result| match result {
-        Ok(path) => successful.push(path),
-        Err(e) => eprintln!("{}", format!("Error: {e}").red()),
-    });
+    for result in results {
+        match result {
+            Ok(path) => successful.push(path),
+            Err(e) => eprintln!("{}", format!("Error: {e}").red()),
+        }
+    }
 
     let zip_files = utils::get_all_zip_files(&successful);
     if !zip_files.is_empty() {
