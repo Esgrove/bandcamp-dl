@@ -13,7 +13,7 @@ default-run = "bcdl"
 rust-version = "1.87"
 
 [dependencies]
-anyhow = "1.0.98"
+anyhow = "1.0.100"
 clap = { version = "4.5.47", features = [ "derive" ] }
 colored = "3.0.0"
 dunce = "1.0.5"
