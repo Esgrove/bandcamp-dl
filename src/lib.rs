@@ -158,10 +158,10 @@ async fn extract_zip_file(
 
             let mut output_path = extract_to.join(sanitized_path);
 
-            if let Some(extension) = output_path.extension() {
-                if extension == "aiff" {
-                    output_path.set_extension("aif");
-                }
+            if let Some(extension) = output_path.extension()
+                && extension == "aiff"
+            {
+                output_path.set_extension("aif");
             }
 
             if file.is_dir() {
@@ -169,12 +169,12 @@ async fn extract_zip_file(
                     format!("Failed to create directory: {}", output_path.display())
                 })?;
             } else {
-                if let Some(p) = output_path.parent() {
-                    if !p.exists() {
-                        std::fs::create_dir_all(p).with_context(|| {
-                            format!("Failed to create parent directory: {}", p.display())
-                        })?;
-                    }
+                if let Some(p) = output_path.parent()
+                    && !p.exists()
+                {
+                    std::fs::create_dir_all(p).with_context(|| {
+                        format!("Failed to create parent directory: {}", p.display())
+                    })?;
                 }
                 if output_path.exists() && !overwrite {
                     continue;
@@ -230,7 +230,7 @@ async fn download_file(
     let path = dir.join(&filename);
     if path.exists() {
         if !overwrite {
-            return Err(anyhow!("File already exists: {}", filename));
+            return Err(anyhow!("File already exists: {filename}"));
         }
         tokio::fs::remove_file(&path).await?;
     }
