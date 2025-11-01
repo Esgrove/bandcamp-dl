@@ -245,7 +245,7 @@ async fn download_file(
             .template(PROGRESS_BAR_DOWNLOAD_TEMPLATE)?
             .progress_chars(PROGRESS_BAR_CHARS),
     );
-    progress_bar.set_message(filename.to_string());
+    progress_bar.set_message(filename.clone());
 
     while let Some(chunk) = content.next().await {
         let chunk = chunk?;
