@@ -1,6 +1,6 @@
 [package]
 name = "bandcamp-dl"
-version = "1.8.4"
+version = "1.8.5"
 edition = "2024"
 authors = [ "Esgrove <esgrove@outlook.com>" ]
 description = "CLI tool for downloading a list of URLS"
@@ -10,7 +10,7 @@ repository = "https://github.com/Esgrove/bandcamp-dl"
 keywords = [ "cli" ]
 categories = [ "command-line-utilities" ]
 default-run = "bcdl"
-rust-version = "1.89"
+rust-version = "1.90"
 
 [dependencies]
 anyhow = "1.0.100"

@@ -116,7 +116,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "bandcamp-dl"
-version = "1.8.4"
+version = "1.8.5"
 dependencies = [
  "anyhow",
  "clap",
