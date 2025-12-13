@@ -216,7 +216,7 @@ async fn download_file(
     let headers = response.headers();
     let total_bytes = response
         .content_length()
-        .map_or_else(|| get_content_length_bytes(headers), |bytes| bytes);
+        .unwrap_or_else(|| get_content_length_bytes(headers));
     let mut filename =
         get_filename(headers).with_context(|| format!("Failed to get filename for: {url}"))?;
 
