@@ -43,8 +43,6 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let file_count_at_start = utils::count_files_in_directory(&output_path)?;
-
     let results = match bandcamp_dl::download_urls(urls, &output_path, args.force).await {
         Ok(r) => r,
         Err(e) => {
@@ -61,23 +59,32 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let zip_files = utils::get_all_zip_files(&successful);
+    // Files downloaded directly (single tracks) are output as-is,
+    // zips are unpacked below.
+    let downloaded_file_count = successful.len() - zip_files.len();
+
+    let mut extracted_file_count = 0;
     if !zip_files.is_empty() {
         if zip_files.len() > 1 {
             println!("Extracting {} zip files", zip_files.len());
         } else {
             println!("Extracting 1 zip file");
         }
-        let num_files = bandcamp_dl::extract_zip_files(zip_files, args.force).await;
+        extracted_file_count = bandcamp_dl::extract_zip_files(zip_files, args.force).await;
         if args.verbose {
-            println!("Unzipped {num_files} files");
+            println!("Unzipped {extracted_file_count} files");
         }
     }
 
-    // TODO: use count. Get number of downloaded files and calculate total from that.
-    utils::remove_images(&output_path, args.verbose)?;
+    let removed_image_count = utils::remove_images(&output_path, args.verbose)?;
 
-    let file_count_at_end = utils::count_files_in_directory(&output_path)?;
-    match file_count_at_end.saturating_sub(file_count_at_start) {
+    // Count only what this run produced,
+    // direct downloads plus files unpacked from zips,
+    // minus the cover images removed afterwards.
+    // This avoids miscounting from unrelated filesystem changes,
+    // or files extracted into subdirectories.
+    let added = (downloaded_file_count + extracted_file_count).saturating_sub(removed_image_count);
+    match added {
         added if added >= 2 => println!("{}", format!("Added {added} new files").green()),
         1 => println!("{}", "Added 1 new file".green()),
         _ => println!("{}", "No new files added".yellow()),

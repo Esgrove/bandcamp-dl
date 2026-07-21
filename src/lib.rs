@@ -122,9 +122,9 @@ async fn extract_zip_file(
             .with_context(|| format!("Failed to read zip archive: {}", zip_path.display()))?;
 
         let zip_file_name = utils::get_filename_from_path(&zip_path)?;
-        let total_files = archive.len();
+        let total_entries = archive.len();
 
-        let progress_bar = multi_progress.add(ProgressBar::new(total_files as u64));
+        let progress_bar = multi_progress.add(ProgressBar::new(total_entries as u64));
         progress_bar.set_style(
             ProgressStyle::default_bar()
                 .template(PROGRESS_BAR_UNZIP_TEMPLATE)?
@@ -132,7 +132,11 @@ async fn extract_zip_file(
         );
         progress_bar.set_message(zip_file_name);
 
+        // Count only files this run actually writes to disk.
+        // The reported total ignores directory entries and files skipped as already present.
+        let mut extracted_files = 0usize;
         for i in 0..archive.len() {
+            progress_bar.inc(1);
             let mut file = archive.by_index(i).with_context(|| {
                 format!(
                     "Failed to access file at index {i} in {}",
@@ -188,12 +192,12 @@ async fn extract_zip_file(
                         output_path.display()
                     )
                 })?;
+                extracted_files += 1;
             }
-            progress_bar.inc(1);
         }
         progress_bar.finish();
         trash::delete(&zip_path).context("Failed to move zip file to trash")?;
-        Ok(total_files)
+        Ok(extracted_files)
     })
     .await?
 }

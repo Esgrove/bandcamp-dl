@@ -54,16 +54,14 @@ async fn main() -> anyhow::Result<()> {
         println!("Extracting 1 zip file");
     }
 
-    // TODO: fix for recursive
-    // Move to extract and return number of files added in total
-    let file_count_at_start = bandcamp_dl::utils::count_files_in_directory(&input_path)?;
-
-    bandcamp_dl::extract_zip_files(zip_files, args.force).await;
-    bandcamp_dl::utils::remove_images(&input_path, args.verbose)?;
+    let extracted_file_count = bandcamp_dl::extract_zip_files(zip_files, args.force).await;
+    let removed_image_count = bandcamp_dl::utils::remove_images(&input_path, args.verbose)?;
 
     if args.verbose {
-        let file_count_at_end = bandcamp_dl::utils::count_files_in_directory(&input_path)?;
-        let added_files = file_count_at_end.saturating_sub(file_count_at_start);
+        // Count files actually unpacked from the zips,
+        // minus the cover images removed afterwards,
+        // rather than diffing the directory contents.
+        let added_files = extracted_file_count.saturating_sub(removed_image_count);
         println!("{}", format!("Added {added_files} new files").green());
     }
 

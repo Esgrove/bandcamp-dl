@@ -68,19 +68,6 @@ pub fn remove_images_from_dir(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(removed)
 }
 
-/// Return the number of files in given directory.
-pub fn count_files_in_directory<P: AsRef<Path>>(path: P) -> anyhow::Result<usize> {
-    let entries = fs::read_dir(path)?;
-    let mut count = 0;
-    for entry in entries {
-        let entry = entry?;
-        if entry.path().is_file() {
-            count += 1;
-        }
-    }
-    Ok(count)
-}
-
 /// Get all zip files from the given paths.
 pub fn get_all_zip_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     paths
