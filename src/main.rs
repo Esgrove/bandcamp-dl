@@ -13,37 +13,37 @@ struct Args {
     #[arg(required_unless_present_any = ["browser", "browser_setup"], conflicts_with_all = ["browser", "browser_setup"])]
     urls: Option<String>,
 
-    /// Get links from the paired Firefox extension
-    #[arg(long)]
-    browser: bool,
-
-    /// Create/show pairing settings to paste into the Firefox extension
-    #[arg(long, conflicts_with_all = ["browser", "output", "force"])]
-    browser_setup: bool,
-
-    /// Pairing file (defaults to the user's configuration directory)
-    #[arg(long, value_name = "PATH", conflicts_with = "urls")]
-    browser_config: Option<PathBuf>,
-
-    /// Local bridge port to save during setup
-    #[arg(long, requires = "browser_setup", conflicts_with_all = ["urls", "browser"], value_parser = clap::value_parser!(u16).range(1..))]
-    browser_port: Option<u16>,
-
-    /// Seconds to wait for each browser step: finding tabs, then receiving links (prompt time excluded)
-    #[arg(long, requires = "browser", conflicts_with_all = ["urls", "browser_setup"], default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=3600))]
-    browser_timeout: u64,
-
-    /// Choose a numbered tab from the terminal list (for noninteractive use)
-    #[arg(long, requires = "browser", conflicts_with_all = ["urls", "browser_setup"], value_parser = clap::value_parser!(u32).range(1..))]
-    browser_tab: Option<u32>,
-
     /// Overwrite existing files
-    #[arg(short, long)]
+    #[arg(short = 'f', long)]
     force: bool,
 
     /// Optional output directory
-    #[arg(short, long, value_name = "PATH")]
+    #[arg(short = 'o', long, value_name = "PATH")]
     output: Option<String>,
+
+    /// Get links from the paired Firefox extension
+    #[arg(short = 'b', long)]
+    browser: bool,
+
+    /// Create/show pairing settings to paste into the Firefox extension
+    #[arg(short = 's', long, conflicts_with_all = ["browser", "output", "force"])]
+    browser_setup: bool,
+
+    /// Pairing file (defaults to the user's configuration directory)
+    #[arg(short = 'c', long, value_name = "PATH", conflicts_with = "urls")]
+    browser_config: Option<PathBuf>,
+
+    /// Local bridge port to save during setup
+    #[arg(short = 'p', long, requires = "browser_setup", conflicts_with_all = ["urls", "browser"], value_parser = clap::value_parser!(u16).range(1..))]
+    browser_port: Option<u16>,
+
+    /// Seconds to wait for each browser step: finding tabs, then receiving links
+    #[arg(short = 't', long, requires = "browser", conflicts_with_all = ["urls", "browser_setup"], default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=3600))]
+    browser_timeout: u64,
+
+    /// Choose a numbered tab from the terminal list (for noninteractive use)
+    #[arg(short = 'a', long, requires = "browser", conflicts_with_all = ["urls", "browser_setup"], value_parser = clap::value_parser!(u32).range(1..))]
+    browser_tab: Option<u32>,
 
     /// Verbose output
     #[arg(short, long)]
