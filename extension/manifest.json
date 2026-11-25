@@ -1,0 +1,42 @@
+{
+  "manifest_version": 2,
+  "name": "Bandcamp DL Link Provider",
+  "version": "1.0.0",
+  "description": "Supply links from your logged-in Bandcamp download tab to the bcdl CLI.",
+  "icons": { "48": "icon.svg", "96": "icon.svg" },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "bcdl@esgrove",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": ["websiteContent", "browsingActivity"]
+      }
+    }
+  },
+  "permissions": [
+    "storage",
+    "clipboardWrite",
+    "https://bandcamp.com/download*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "scripts": ["extract.js", "background.js"],
+    "persistent": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://bandcamp.com/download*"],
+      "js": ["extract.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_action": {
+    "default_icon": "icon.svg",
+    "default_title": "Copy Bandcamp download links"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_security_policy": "script-src 'self'; object-src 'none'; connect-src 'self' http://127.0.0.1:*"
+}

@@ -1,3 +1,4 @@
+pub mod browser;
 pub mod utils;
 
 use std::path::{Path, PathBuf};

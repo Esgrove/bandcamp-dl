@@ -9,12 +9,20 @@ on:
       - "**.rs"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "extension/**"
+      - "extension-tests/**"
+      - "package.json"
+      - "bun.lock"
   pull_request:
     paths:
       - ".github/workflows/rust.yml"
       - "**.rs"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "extension/**"
+      - "extension-tests/**"
+      - "package.json"
+      - "bun.lock"
 
 # Cancel previous runs for PRs but not pushes to main
 concurrency:
@@ -87,3 +95,19 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --check --verbose
+
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+      - name: Install extension development dependencies
+        run: bun install --frozen-lockfile
+      - name: Test extraction and browser handoff
+        run: bun run test
+      - name: Validate Firefox extension
+        run: bun run --bun lint
+      - name: Package Firefox extension
+        run: bun run --bun build
