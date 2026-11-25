@@ -12,6 +12,9 @@ const requestId = "b".repeat(64);
 async function background(tabs, responses = []) {
   const calls = [];
   const messages = [];
+  // Capture extension console errors instead of printing them in passing test runs.
+  const errors = [];
+  const quietConsole = { ...console, error: (...args) => errors.push(args.join(" ")) };
   const storage = {
     pairing: { port: 47653, token: "a".repeat(64) },
     profileId: "test-profile",
@@ -20,7 +23,7 @@ async function background(tabs, responses = []) {
   const delays = [];
   let click;
   const context = vm.createContext({
-    URL, AbortSignal, TypeError, crypto: webcrypto, console,
+    URL, AbortSignal, TypeError, crypto: webcrypto, console: quietConsole,
     setTimeout: (callback, delay) => { tick = callback; delays.push(delay); },
     browser: {
       storage: { local: {
@@ -53,7 +56,7 @@ async function background(tabs, responses = []) {
   vm.runInContext(source("extract.js"), context);
   vm.runInContext(source("background.js"), context);
   await settle();
-  return { calls, messages, storage, delays, tick: () => tick(), click: (tab) => click(tab) };
+  return { calls, messages, storage, delays, errors, tick: () => tick(), click: (tab) => click(tab) };
 }
 
 test("no localhost traffic when no download tab is open", async () => {
@@ -129,6 +132,7 @@ test("unknown bridge commands produce an explicit error and no collection", asyn
   );
   assert.match(provider.storage.status, /Unsupported browser bridge response/);
   assert.equal(provider.messages.length, 0);
+  assert.match(provider.errors.join("\n"), /Unsupported browser bridge response/);
 });
 
 test("content script uses the real extraction helper and clipboard only on request", async () => {
