@@ -10,7 +10,7 @@ repository = "https://github.com/Esgrove/bandcamp-dl"
 keywords = [ "cli" ]
 categories = [ "command-line-utilities" ]
 default-run = "bcdl"
-rust-version = "1.90"
+rust-version = "1.100"
 
 [dependencies]
 anyhow = "1.0.105"
