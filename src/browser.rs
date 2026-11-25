@@ -297,7 +297,8 @@ async fn tabs(State(bridge): State<Bridge>, Json(list): Json<TabList>) -> Status
     }
     let mut session = bridge.session.lock().await;
     if !session.listing {
-        // A list response may arrive after discovery closes; acknowledge known providers.
+        // A list response may arrive after discovery closes.
+        // Acknowledge known providers.
         return if session.profiles.contains_key(&list.profile_id) {
             StatusCode::NO_CONTENT
         } else {
@@ -374,7 +375,8 @@ async fn links(State(bridge): State<Bridge>, Json(result): Json<LinkResult>) -> 
 type Candidate = (String, Tab);
 
 /// Wait for the first profile, then keep discovery open briefly for other Firefox profiles.
-/// Only waiting for the first profile can time out; the window itself is capped by `deadline`.
+/// Only waiting for the first profile can time out.
+/// The window itself is capped by `deadline`.
 async fn discover(bridge: &Bridge, deadline: Instant) -> anyhow::Result<Vec<Candidate>> {
     let first = tokio::time::timeout_at(deadline, async {
         loop {
@@ -492,7 +494,8 @@ async fn collect(bridge: &Bridge, deadline: Instant) -> anyhow::Result<Vec<Strin
     })?
 }
 
-/// Discovery and collection each get the full `timeout`; time spent at the tab prompt is not counted.
+/// Discovery and collection each get the full `timeout`.
+/// Time spent at the tab prompt is not counted.
 async fn exchange<F, Fut>(
     bridge: &Bridge,
     timeout: Duration,

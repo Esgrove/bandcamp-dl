@@ -201,7 +201,8 @@ sign_extension() {
     cp -R "$EXTENSION_DIR" "$STAGING_DIR"
     set_extension_version "$STAGING_DIR/manifest.json" "$version"
 
-    # web-ext reads its credentials from these variables; export them without tracing the values
+    # web-ext reads its credentials from these variables.
+    # Export them without tracing the values
     local tracing=false
     case "$-" in *x*) tracing=true ;; esac
     { set +x; } 2> /dev/null
