@@ -1,4 +1,6 @@
 /target
+/web-ext-artifacts/
+/node_modules/
 /bcdl
 *.aif
 *.aiff

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Bandcamp DL pairing</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <h1>Bandcamp DL pairing</h1>
+    <p>Run <code>bcdl --browser-setup</code> on this computer and paste its JSON below.
+      Keep this token private. No cookies or login details are needed.</p>
+    <form id="pairing-form">
+      <label for="pairing">Local pairing JSON</label>
+      <textarea id="pairing" rows="7" spellcheck="false" required></textarea>
+      <button type="submit">Save pairing</button>
+      <button type="button" id="remove">Remove pairing</button>
+    </form>
+    <p id="message" role="status"></p>
+    <p>Open your logged-in Bandcamp download page, select your format, then run
+      <code>bcdl --browser -o "/path/to/music"</code>.
+      The CLI controls downloads and displays progress.</p>
+    <p>Clicking the toolbar icon instead copies links as a JSON array, without downloading.</p>
+    <p id="status"></p>
+    <script src="options.js"></script>
+  </body>
+</html>

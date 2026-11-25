@@ -1,3 +1,4 @@
+pub mod browser;
 pub mod utils;
 
 use std::path::{Path, PathBuf};
@@ -10,8 +11,8 @@ use colored::Colorize;
 use futures::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use regex::Regex;
-use reqwest::Client;
 use reqwest::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, HeaderMap};
+use reqwest::{Client, StatusCode};
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Semaphore, SemaphorePermit};
 use zip::ZipArchive;
@@ -21,6 +22,13 @@ static RE_FILENAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"; filename="([^"]+)";"#).expect("Filename regex failed"));
 
 const PROGRESS_BAR_CHARS: &str = "=>-";
+/// Maximum time without receiving any data before a download is considered stalled.
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+/// Delays before retrying a transient download failure.
+#[cfg(not(test))]
+const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
+#[cfg(test)]
+const RETRY_DELAYS: [Duration; 2] = [Duration::from_millis(10), Duration::from_millis(10)];
 const PROGRESS_BAR_DOWNLOAD_TEMPLATE: &str = "[{elapsed_precise}] {bar:40.cyan/blue} [{percent:>3}%] {bytes:>10}/{total_bytes:>10} ({bytes_per_sec:>11}) {msg}";
 const PROGRESS_BAR_UNZIP_TEMPLATE: &str =
     "[{elapsed_precise}] {bar:40.magenta/blue} {pos:>3}/{len:3} {msg}";
@@ -34,6 +42,7 @@ pub async fn download_urls(
 ) -> anyhow::Result<Vec<Result<PathBuf, Error>>> {
     let client = Client::builder()
         .connect_timeout(Duration::new(5, 0))
+        .read_timeout(READ_TIMEOUT)
         .build()
         .context("Failed to create client")?;
 
@@ -202,7 +211,31 @@ async fn extract_zip_file(
     .await?
 }
 
+/// A failed download attempt, and whether trying again may help.
+struct Failure {
+    error: Error,
+    retryable: bool,
+}
+
+impl Failure {
+    fn fatal(error: impl Into<Error>) -> Self {
+        Self {
+            error: error.into(),
+            retryable: false,
+        }
+    }
+
+    fn from_reqwest(error: reqwest::Error) -> Self {
+        let retryable = !(error.is_builder() || error.is_redirect() || error.is_status());
+        Self {
+            error: error.into(),
+            retryable,
+        }
+    }
+}
+
 /// Download a single file with its own progress bar.
+/// Transient network failures are retried a bounded number of times.
 async fn download_file(
     client: &Client,
     dir: &Path,
@@ -210,19 +243,47 @@ async fn download_file(
     multi_progress: Arc<MultiProgress>,
     overwrite: bool,
 ) -> anyhow::Result<PathBuf> {
-    let response = client.get(url).send().await?;
-    if !response.status().is_success() {
-        anyhow::bail!(
-            "Request failed with status {} for: {url}",
-            response.status()
-        )
+    let mut retries = RETRY_DELAYS.iter();
+    loop {
+        match download_attempt(client, dir, url, &multi_progress, overwrite).await {
+            Ok(path) => return Ok(path),
+            Err(failure) if failure.retryable => match retries.next() {
+                Some(delay) => tokio::time::sleep(*delay).await,
+                None => return Err(failure.error),
+            },
+            Err(failure) => return Err(failure.error),
+        }
+    }
+}
+
+/// One download attempt: stream into `<name>.part`, then rename into place.
+/// A failed attempt never leaves a partial file behind under either name.
+async fn download_attempt(
+    client: &Client,
+    dir: &Path,
+    url: &str,
+    multi_progress: &MultiProgress,
+    overwrite: bool,
+) -> Result<PathBuf, Failure> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(Failure::from_reqwest)?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(Failure {
+            error: anyhow!("Request failed with status {status} for: {url}"),
+            retryable: status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error(),
+        });
     }
     let headers = response.headers();
     let total_bytes = response
         .content_length()
         .unwrap_or_else(|| get_content_length_bytes(headers));
-    let mut filename =
-        get_filename(headers).with_context(|| format!("Failed to get filename for: {url}"))?;
+    let mut filename = get_filename(headers)
+        .with_context(|| format!("Failed to get filename for: {url}"))
+        .map_err(Failure::fatal)?;
 
     // Bandcamp file extensions are always in lowercase
     #[allow(clippy::case_sensitive_file_extension_comparisons)]
@@ -232,34 +293,87 @@ async fn download_file(
     }
 
     let path = dir.join(&filename);
-    if path.exists() {
-        if !overwrite {
-            return Err(anyhow!("File already exists: {filename}"));
-        }
-        tokio::fs::remove_file(&path).await?;
+    if path.exists() && !overwrite {
+        return Err(Failure::fatal(anyhow!("File already exists: {filename}")));
     }
 
-    let file = tokio::fs::File::create(&path).await?;
-    let mut writer = BufWriter::new(file);
-    let mut content = response.bytes_stream();
-
+    let part_path = dir.join(format!("{filename}.part"));
     let progress_bar = multi_progress.add(ProgressBar::new(total_bytes));
     progress_bar.set_style(
         ProgressStyle::default_bar()
-            .template(PROGRESS_BAR_DOWNLOAD_TEMPLATE)?
+            .template(PROGRESS_BAR_DOWNLOAD_TEMPLATE)
+            .map_err(Failure::fatal)?
             .progress_chars(PROGRESS_BAR_CHARS),
     );
     progress_bar.set_message(filename.clone());
 
-    while let Some(chunk) = content.next().await {
-        let chunk = chunk?;
-        progress_bar.inc(chunk.len() as u64);
-        writer.write_all(&chunk).await?;
+    let result = write_part_file(response, &part_path, total_bytes, &progress_bar).await;
+    let result = match result {
+        Ok(()) => replace_file(&part_path, &path, overwrite)
+            .await
+            .map_err(Failure::fatal),
+        Err(failure) => Err(failure),
+    };
+    match result {
+        Ok(()) => {
+            progress_bar.finish();
+            Ok(path)
+        }
+        Err(failure) => {
+            progress_bar.finish_and_clear();
+            let _ = tokio::fs::remove_file(&part_path).await;
+            Err(failure)
+        }
     }
-    writer.flush().await?;
-    progress_bar.finish();
+}
 
-    Ok(path)
+async fn write_part_file(
+    response: reqwest::Response,
+    part_path: &Path,
+    total_bytes: u64,
+    progress_bar: &ProgressBar,
+) -> Result<(), Failure> {
+    let file = tokio::fs::File::create(part_path)
+        .await
+        .map_err(Failure::fatal)?;
+    let mut writer = BufWriter::new(file);
+    let mut content = response.bytes_stream();
+    let mut written: u64 = 0;
+    while let Some(chunk) = content.next().await {
+        let chunk = chunk.map_err(Failure::from_reqwest)?;
+        written += chunk.len() as u64;
+        progress_bar.inc(chunk.len() as u64);
+        writer.write_all(&chunk).await.map_err(Failure::fatal)?;
+    }
+    writer.flush().await.map_err(Failure::fatal)?;
+    writer
+        .into_inner()
+        .sync_all()
+        .await
+        .map_err(Failure::fatal)?;
+    if total_bytes > 0 && written != total_bytes {
+        return Err(Failure {
+            error: anyhow!("Incomplete download: received {written} of {total_bytes} bytes"),
+            retryable: true,
+        });
+    }
+    Ok(())
+}
+
+/// Move a finished download into place.
+/// An existing file is only removed once its replacement is complete.
+async fn replace_file(part_path: &Path, path: &Path, overwrite: bool) -> anyhow::Result<()> {
+    if path.exists() {
+        anyhow::ensure!(
+            overwrite,
+            "File already exists: {}",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        );
+        // Windows cannot rename over an existing file.
+        tokio::fs::remove_file(path).await?;
+    }
+    tokio::fs::rename(part_path, path).await?;
+    Ok(())
 }
 
 /// Get total file size from headers.
@@ -287,4 +401,137 @@ fn get_filename(headers: &HeaderMap) -> anyhow::Result<String> {
 /// Create a Semaphore with half the number of logical CPU cores available.
 fn create_semaphore_for_num_physical_cpus() -> Arc<Semaphore> {
     Arc::new(Semaphore::new(num_cpus::get_physical()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use axum::body::{Body, Bytes};
+    use axum::extract::{Path as UrlPath, State};
+    use axum::response::Response;
+    use axum::routing::get;
+
+    const BODY_LEN: usize = 100;
+
+    /// Fails the first `fails` requests mid-body, then serves the full file.
+    async fn flaky(
+        State(count): State<Arc<AtomicUsize>>,
+        UrlPath(fails): UrlPath<usize>,
+    ) -> Response {
+        let attempt = count.fetch_add(1, Ordering::SeqCst);
+        let chunks: Vec<Result<Bytes, std::io::Error>> = if attempt < fails {
+            vec![
+                Ok(Bytes::from(vec![b'x'; 10])),
+                Err(std::io::Error::other("connection dropped")),
+            ]
+        } else {
+            vec![Ok(Bytes::from(vec![b'x'; BODY_LEN]))]
+        };
+        Response::builder()
+            .header(CONTENT_LENGTH, BODY_LEN)
+            .header(
+                CONTENT_DISPOSITION,
+                r#"attachment; filename="track.flac"; filename*=UTF-8''track.flac"#,
+            )
+            .body(Body::from_stream(futures::stream::iter(chunks)))
+            .unwrap()
+    }
+
+    async fn missing(State(count): State<Arc<AtomicUsize>>) -> axum::http::StatusCode {
+        count.fetch_add(1, Ordering::SeqCst);
+        axum::http::StatusCode::NOT_FOUND
+    }
+
+    async fn serve() -> (String, Arc<AtomicUsize>) {
+        let count = Arc::new(AtomicUsize::new(0));
+        let router = axum::Router::new()
+            .route("/flaky/{fails}", get(flaky))
+            .route("/missing", get(missing))
+            .with_state(Arc::clone(&count));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let root = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        (root, count)
+    }
+
+    async fn download(url: &str, dir: &Path) -> anyhow::Result<PathBuf> {
+        let client = Client::builder().no_proxy().build().unwrap();
+        let progress = Arc::new(MultiProgress::with_draw_target(
+            indicatif::ProgressDrawTarget::hidden(),
+        ));
+        download_file(&client, dir, url, progress, false).await
+    }
+
+    fn files(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[tokio::test]
+    async fn transient_failures_are_retried_without_leftovers() {
+        let (root, count) = serve().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = download(&format!("{root}/flaky/2"), dir.path())
+            .await
+            .unwrap();
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+        assert_eq!(std::fs::read(&path).unwrap().len(), BODY_LEN);
+        assert_eq!(files(dir.path()), vec!["track.flac"]);
+    }
+
+    #[tokio::test]
+    async fn exhausted_retries_leave_no_partial_file() {
+        let (root, count) = serve().await;
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            download(&format!("{root}/flaky/9"), dir.path())
+                .await
+                .is_err()
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 1 + RETRY_DELAYS.len());
+        assert_eq!(files(dir.path()), Vec::<String>::new());
+        // The next run is not blocked by a leftover "existing" file.
+        let (root, _) = serve().await;
+        assert!(
+            download(&format!("{root}/flaky/0"), dir.path())
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn client_errors_are_not_retried() {
+        let (root, count) = serve().await;
+        let dir = tempfile::tempdir().unwrap();
+        let error = download(&format!("{root}/missing"), dir.path())
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("404"), "{error}");
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        assert_eq!(files(dir.path()), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn existing_file_is_kept_until_replacement_completes() {
+        let (root, _) = serve().await;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("track.flac"), b"old").unwrap();
+        assert!(
+            download(&format!("{root}/flaky/0"), dir.path())
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("already exists")
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("track.flac")).unwrap(),
+            b"old"
+        );
+    }
 }

@@ -1,0 +1,13 @@
+{
+  "name": "bandcamp-dl-extension",
+  "private": true,
+  "packageManager": "bun@1.4.5",
+  "scripts": {
+    "test": "bun test ./extension-tests",
+    "lint": "web-ext lint --source-dir extension --warnings-as-errors",
+    "build": "web-ext build --source-dir extension"
+  },
+  "devDependencies": {
+    "web-ext": "10.8.0"
+  }
+}
