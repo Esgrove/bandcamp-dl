@@ -1,7 +1,8 @@
-//! Temporary, authenticated Firefox-to-CLI link import.
+//! Temporary, authenticated link import from the paired Firefox extension.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
+use std::future::Future;
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,11 +18,20 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Notify};
+use tokio::time::Instant;
 
 const DEFAULT_PORT: u16 = 47653;
 const MAX_LINKS: usize = 2000;
 const MAX_BODY: usize = 1024 * 1024;
 const MAX_TABS: usize = 100;
+const MAX_PROFILES: usize = 16;
+const MAX_TITLE_BYTES: usize = 512;
+/// Quiet period after the latest new Firefox profile announced its tabs.
+/// Longer than the extension's 2 s idle poll interval plus a round trip.
+const DISCOVERY_WINDOW: Duration = Duration::from_secs(4);
+/// Upper bound for the whole discovery phase after the first profile appeared.
+const DISCOVERY_MAX: Duration = Duration::from_secs(8);
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 static URL_IN_ERROR: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)\(?https?://[^\s]+").expect("valid URL redaction regex")
 });
@@ -182,6 +192,11 @@ impl Bridge {
     }
 }
 
+/// Compare secrets without an early exit on the first differing byte.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 async fn authenticate(
     State(bridge): State<Bridge>,
     headers: HeaderMap,
@@ -190,8 +205,9 @@ async fn authenticate(
 ) -> Response {
     let expected_host = format!("127.0.0.1:{}", bridge.config.port);
     let host_ok = headers.get("host").and_then(|v| v.to_str().ok()) == Some(expected_host.as_str());
-    let token_ok = headers.get("x-bcdl-token").and_then(|v| v.to_str().ok())
-        == Some(bridge.config.token.as_str());
+    let token_ok = headers
+        .get("x-bcdl-token")
+        .is_some_and(|v| constant_time_eq(v.as_bytes(), bridge.config.token.as_bytes()));
     let origin_ok = headers.get("origin").is_none_or(|origin| {
         origin
             .to_str()
@@ -265,7 +281,10 @@ async fn tabs(State(bridge): State<Bridge>, Json(list): Json<TabList>) -> Status
         || !valid_profile(&list.profile_id)
         || list.tabs.is_empty()
         || list.tabs.len() > MAX_TABS
-        || list.tabs.iter().any(|tab| tab.title.len() > 512)
+        || list
+            .tabs
+            .iter()
+            .any(|tab| tab.title.len() > MAX_TITLE_BYTES)
         || list
             .tabs
             .iter()
@@ -285,7 +304,7 @@ async fn tabs(State(bridge): State<Bridge>, Json(list): Json<TabList>) -> Status
             StatusCode::CONFLICT
         };
     }
-    if session.profiles.len() >= 16 && !session.profiles.contains_key(&list.profile_id) {
+    if session.profiles.len() >= MAX_PROFILES && !session.profiles.contains_key(&list.profile_id) {
         return StatusCode::TOO_MANY_REQUESTS;
     }
     session.profiles.insert(list.profile_id, list.tabs);
@@ -352,25 +371,57 @@ async fn links(State(bridge): State<Bridge>, Json(result): Json<LinkResult>) -> 
     StatusCode::NO_CONTENT
 }
 
-async fn select_and_receive(bridge: &Bridge, choice: Option<u32>) -> anyhow::Result<Vec<String>> {
-    loop {
-        let notified = bridge.changed.notified();
-        if !bridge.session.lock().await.profiles.is_empty() {
-            break;
+type Candidate = (String, Tab);
+
+/// Wait for the first profile, then keep discovery open briefly for other Firefox profiles.
+/// Only waiting for the first profile can time out; the window itself is capped by `deadline`.
+async fn discover(bridge: &Bridge, deadline: Instant) -> anyhow::Result<Vec<Candidate>> {
+    let first = tokio::time::timeout_at(deadline, async {
+        loop {
+            let notified = bridge.changed.notified();
+            let count = bridge.session.lock().await.profiles.len();
+            if count > 0 {
+                return count;
+            }
+            notified.await;
         }
-        notified.await;
+    })
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "Browser import timed out: no paired Firefox download tab responded. \
+             Check extension pairing/permissions and reload the download tab."
+        )
+    })?;
+    let hard_stop = (Instant::now() + DISCOVERY_MAX).min(deadline);
+    let mut quiet_until = (Instant::now() + DISCOVERY_WINDOW).min(hard_stop);
+    let mut known = first;
+    while Instant::now() < quiet_until {
+        let notified = bridge.changed.notified();
+        let count = bridge.session.lock().await.profiles.len();
+        if count > known {
+            known = count;
+            quiet_until = (Instant::now() + DISCOVERY_WINDOW).min(hard_stop);
+        }
+        tokio::select! {
+            () = notified => {}
+            () = tokio::time::sleep_until(quiet_until) => {}
+        }
     }
-    // Allow other open Firefox profiles to announce their tabs before selecting.
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    let candidates: Vec<_> = {
-        let mut session = bridge.session.lock().await;
-        session.listing = false;
-        session
-            .profiles
-            .iter()
-            .flat_map(|(profile, tabs)| tabs.iter().map(|tab| (profile.clone(), tab.clone())))
-            .collect()
-    };
+    let mut session = bridge.session.lock().await;
+    session.listing = false;
+    Ok(session
+        .profiles
+        .iter()
+        .flat_map(|(profile, tabs)| tabs.iter().map(|tab| (profile.clone(), tab.clone())))
+        .collect())
+}
+
+/// Pick a tab: automatically when there is only one, otherwise from `choice` or the terminal.
+async fn choose_tab(
+    candidates: Vec<Candidate>,
+    choice: Option<u32>,
+) -> anyhow::Result<(String, u32)> {
     let index = if candidates.len() == 1 && choice.is_none() {
         0
     } else {
@@ -394,7 +445,7 @@ async fn select_and_receive(bridge: &Bridge, choice: Option<u32>) -> anyhow::Res
             eprint!("Select tab number: ");
             std::io::stderr().flush()?;
             let (sender, receiver) = tokio::sync::oneshot::channel();
-            // Tokio's blocking stdin worker would prevent shutdown on timeout/Ctrl+C.
+            // Tokio's blocking stdin worker would prevent shutdown on Ctrl+C.
             std::thread::Builder::new()
                 .name("browser-tab-choice".into())
                 .spawn(move || {
@@ -413,16 +464,48 @@ async fn select_and_receive(bridge: &Bridge, choice: Option<u32>) -> anyhow::Res
         );
         number - 1
     };
-    let (profile, tab) = &candidates[index];
-    bridge.session.lock().await.selected = Some((profile.clone(), tab.id));
-    loop {
-        let notified = bridge.changed.notified();
-        let result = bridge.session.lock().await.result.take();
-        if let Some(result) = result {
-            return result;
+    let (profile, tab) = candidates
+        .into_iter()
+        .nth(index)
+        .expect("index checked above");
+    Ok((profile, tab.id))
+}
+
+/// Wait for the selected tab's links.
+async fn collect(bridge: &Bridge, deadline: Instant) -> anyhow::Result<Vec<String>> {
+    tokio::time::timeout_at(deadline, async {
+        loop {
+            let notified = bridge.changed.notified();
+            let result = bridge.session.lock().await.result.take();
+            if let Some(result) = result {
+                return result;
+            }
+            notified.await;
         }
-        notified.await;
-    }
+    })
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "Browser import timed out: the selected tab did not return links. \
+             Reload the download tab, wait for its links, and retry."
+        )
+    })?
+}
+
+/// Discovery and collection each get the full `timeout`; time spent at the tab prompt is not counted.
+async fn exchange<F, Fut>(
+    bridge: &Bridge,
+    timeout: Duration,
+    choose: F,
+) -> anyhow::Result<Vec<String>>
+where
+    F: FnOnce(Vec<Candidate>) -> Fut,
+    Fut: Future<Output = anyhow::Result<(String, u32)>>,
+{
+    let candidates = discover(bridge, Instant::now() + timeout).await?;
+    let selected = choose(candidates).await?;
+    bridge.session.lock().await.selected = Some(selected);
+    collect(bridge, Instant::now() + timeout).await
 }
 
 /// Import fresh links, closing the local listener before returning to the downloader.
@@ -433,7 +516,17 @@ pub async fn import(
 ) -> anyhow::Result<Vec<String>> {
     let config = load_config(&config_path(path)?)?;
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.port))
-        .await.context("Cannot open browser bridge port; another bcdl may be running. Use --browser-setup to inspect pairing.")?;
+        .await
+        .context("Cannot open browser bridge port; another bcdl may be running. Use --browser-setup to inspect pairing.")?;
+    import_with_listener(listener, config, timeout, choice).await
+}
+
+async fn import_with_listener(
+    listener: tokio::net::TcpListener,
+    config: Config,
+    timeout: Duration,
+    choice: Option<u32>,
+) -> anyhow::Result<Vec<String>> {
     let bridge = Bridge::new(config)?;
     eprintln!(
         "Waiting for Firefox download links ({} seconds). Keep the paired download tab open.",
@@ -447,19 +540,20 @@ pub async fn import(
         .into_future();
     tokio::pin!(server);
     let result = tokio::select! {
-        result = select_and_receive(&bridge, choice) => result,
-        () = tokio::time::sleep(timeout) =>
-            Err(anyhow::anyhow!("Browser import timed out. Check extension pairing/permissions, reload the download tab, and wait for its links.")),
+        result = exchange(&bridge, timeout, |candidates| choose_tab(candidates, choice)) => result,
         result = &mut server => {
             result.context("Browser bridge failed")?;
             return Err(anyhow::anyhow!("Browser bridge stopped before receiving links"));
         },
     };
     let _ = shutdown.send(());
-    tokio::time::timeout(Duration::from_secs(2), &mut server)
-        .await
-        .context("Browser bridge shutdown timed out")?
-        .context("Browser bridge shutdown failed")?;
+    // A slow shutdown must not discard links that already arrived.
+    // Dropping the server future below closes the listening socket regardless.
+    match tokio::time::timeout(SHUTDOWN_GRACE, &mut server).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("Warning: browser bridge shutdown failed: {error}"),
+        Err(_) => eprintln!("Warning: browser bridge shutdown timed out; listener closed anyway"),
+    }
     let result = result?;
     eprintln!("Received {} download links from Firefox.", result.len());
     Ok(result)
@@ -697,91 +791,191 @@ mod tests {
         server.abort();
     }
 
+    /// Simulates the extension: lists two tabs, then returns links for the requested tab.
+    async fn fake_extension(port: u16, token: &str) -> tokio::net::TcpStream {
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let root = format!("http://127.0.0.1:{port}/v1");
+        let mut stalled = None;
+        loop {
+            let response = client
+                .get(format!("{root}/request?profile_id=profile"))
+                .header("x-bcdl-token", token)
+                .send()
+                .await;
+            let Ok(response) = response else {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            };
+            if stalled.is_none() {
+                // An unfinished request keeps a connection busy during graceful shutdown.
+                let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+                    .await
+                    .unwrap();
+                tokio::io::AsyncWriteExt::write_all(
+                    &mut stream,
+                    format!("GET /v1/request HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n").as_bytes(),
+                )
+                .await
+                .unwrap();
+                stalled = Some(stream);
+            }
+            let request: serde_json::Value = response.json().await.unwrap();
+            match request["action"].as_str().unwrap() {
+                "list" => {
+                    let response = client
+                        .post(format!("{root}/tabs"))
+                        .header("x-bcdl-token", token)
+                        .json(&serde_json::json!({
+                            "request_id": request["request_id"], "profile_id": "profile",
+                            "tabs": [{"id": 1, "title": "First"}, {"id": 2, "title": "Second"}]
+                        }))
+                        .send()
+                        .await
+                        .unwrap();
+                    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+                }
+                "collect" => {
+                    assert_eq!(request["tab_id"], 2);
+                    let response = client
+                        .post(format!("{root}/links"))
+                        .header("x-bcdl-token", token)
+                        .json(&serde_json::json!({
+                            "request_id": request["request_id"], "profile_id": "profile", "tab_id": 2,
+                            "urls": ["https://p4.bcbits.com/download/track/example"]
+                        }))
+                        .send()
+                        .await
+                        .unwrap();
+                    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+                    return stalled.unwrap();
+                }
+                "idle" => {}
+                action => panic!("Unexpected action: {action}"),
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
     #[tokio::test]
     async fn full_import_selects_tab_and_closes_listener() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("browser.json");
-        let port_reservation = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = port_reservation.local_addr().unwrap().port();
-        setup(Some(&path), Some(port)).unwrap();
-        let token = load_config(&path).unwrap().token;
-        drop(port_reservation);
-        let provider = async {
-            let client = reqwest::Client::builder().no_proxy().build().unwrap();
-            let root = format!("http://127.0.0.1:{port}/v1");
-            loop {
-                let response = client
-                    .get(format!("{root}/request?profile_id=profile"))
-                    .header("x-bcdl-token", &token)
-                    .send()
-                    .await;
-                let Ok(response) = response else {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    continue;
-                };
-                let request: serde_json::Value = response.json().await.unwrap();
-                match request["action"].as_str().unwrap() {
-                    "list" => {
-                        let response = client
-                            .post(format!("{root}/tabs"))
-                            .header("x-bcdl-token", &token)
-                            .json(&serde_json::json!({
-                                "request_id": request["request_id"], "profile_id": "profile",
-                                "tabs": [{"id": 1, "title": "First"}, {"id": 2, "title": "Second"}]
-                            }))
-                            .send()
-                            .await
-                            .unwrap();
-                        assert_eq!(response.status(), StatusCode::NO_CONTENT);
-                    }
-                    "collect" => {
-                        assert_eq!(request["tab_id"], 2);
-                        let response = client.post(format!("{root}/links"))
-                            .header("x-bcdl-token", &token)
-                            .json(&serde_json::json!({
-                                "request_id": request["request_id"], "profile_id": "profile", "tab_id": 2,
-                                "urls": ["https://p4.bcbits.com/download/track/example"]
-                            })).send().await.unwrap();
-                        assert_eq!(response.status(), StatusCode::NO_CONTENT);
-                        break;
-                    }
-                    "idle" => {}
-                    action => panic!("Unexpected action: {action}"),
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let token = "c".repeat(64);
+        let config = Config {
+            port,
+            token: token.clone(),
         };
-        let (urls, ()) = tokio::time::timeout(Duration::from_secs(12), async {
+        let (urls, _stalled) = tokio::time::timeout(Duration::from_secs(15), async {
             tokio::join!(
-                import(Some(&path), Duration::from_secs(10), Some(2)),
-                provider
+                import_with_listener(listener, config, Duration::from_secs(10), Some(2)),
+                fake_extension(port, &token)
             )
         })
         .await
         .expect("import/provider exchange must finish");
+        // Links survive even if graceful shutdown waits on the stalled connection.
         assert_eq!(
             urls.unwrap(),
             vec!["https://p4.bcbits.com/download/track/example"]
         );
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        drop(
+            tokio::net::TcpListener::bind(("127.0.0.1", port))
+                .await
+                .expect("listener must be closed after import"),
+        );
+    }
+
+    #[tokio::test]
+    async fn import_reports_timeout_and_occupied_port() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let error = import_with_listener(
+            listener,
+            Config {
+                port,
+                token: "d".repeat(64),
+            },
+            Duration::from_millis(30),
+            None,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("timed out"), "{error}");
+        assert!(error.contains("no paired Firefox"), "{error}");
+
+        let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("browser.json");
+        setup(Some(&path), Some(occupied.local_addr().unwrap().port())).unwrap();
+        let error = import(Some(&path), Duration::from_millis(30), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Cannot open browser bridge port"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn prompt_time_does_not_count_toward_timeout() {
+        let (bridge, _root, server) = test_bridge().await;
+        bridge.session.lock().await.profiles.insert(
+            "profile".into(),
+            vec![Tab {
+                id: 1,
+                title: "Purchase".into(),
+            }],
+        );
+        let timeout = Duration::from_millis(300);
+        let responder = bridge.clone();
+        let result = exchange(&bridge, timeout, |candidates| async move {
+            assert_eq!(candidates.len(), 1);
+            // A slow human at the prompt: longer than the whole timeout.
+            tokio::time::sleep(timeout * 2).await;
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                responder.session.lock().await.result = Some(Ok(vec!["link".into()]));
+                responder.changed.notify_one();
+            });
+            Ok(("profile".to_string(), 1))
+        })
+        .await;
+        assert_eq!(result.unwrap(), vec!["link"]);
+        assert!(!bridge.session.lock().await.listing);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn discovery_waits_for_late_profiles() {
+        let (bridge, _root, server) = test_bridge().await;
+        let late = bridge.clone();
+        tokio::spawn(async move {
+            for (delay, profile) in [(0, "first"), (3000, "second")] {
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+                late.session.lock().await.profiles.insert(
+                    profile.into(),
+                    vec![Tab {
+                        id: 1,
+                        title: profile.into(),
+                    }],
+                );
+                late.changed.notify_one();
+            }
+        });
+        let candidates = discover(&bridge, Instant::now() + Duration::from_secs(20))
             .await
             .unwrap();
-        drop(listener);
-        assert!(
-            import(Some(&path), Duration::from_millis(30), None)
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("timed out")
+        assert_eq!(
+            candidates.len(),
+            2,
+            "second profile arrived inside the window"
         );
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
-            .await
-            .unwrap();
-        assert!(
-            import(Some(&path), Duration::from_millis(30), None)
-                .await
-                .is_err()
-        );
-        drop(listener);
+        server.abort();
+    }
+
+    #[test]
+    fn token_comparison() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
     }
 }

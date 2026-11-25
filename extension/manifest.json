@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Bandcamp DL Link Provider",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Supply links from your logged-in Bandcamp download tab to the bcdl CLI.",
   "icons": { "48": "icon.svg", "96": "icon.svg" },
   "browser_specific_settings": {

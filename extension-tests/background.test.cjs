@@ -17,10 +17,11 @@ async function background(tabs, responses = []) {
     profileId: "test-profile",
   };
   let tick;
+  const delays = [];
   let click;
   const context = vm.createContext({
     URL, AbortSignal, TypeError, crypto: webcrypto, console,
-    setInterval: (callback) => { tick = callback; },
+    setTimeout: (callback, delay) => { tick = callback; delays.push(delay); },
     browser: {
       storage: { local: {
         get: async () => ({ ...storage }),
@@ -52,13 +53,39 @@ async function background(tabs, responses = []) {
   vm.runInContext(source("extract.js"), context);
   vm.runInContext(source("background.js"), context);
   await settle();
-  return { calls, messages, storage, tick: () => tick(), click: (tab) => click(tab) };
+  return { calls, messages, storage, delays, tick: () => tick(), click: (tab) => click(tab) };
 }
 
 test("no localhost traffic when no download tab is open", async () => {
   const provider = await background([]);
   await provider.tick();
   assert.equal(provider.calls.length, 0);
+  assert.match(provider.storage.status, /Open a Bandcamp download page/);
+  assert.equal(provider.delays.at(-1), 5000, "slow polling without a download tab");
+});
+
+test("polls faster while the CLI is active", async () => {
+  const tab = { id: 1, url: "https://bandcamp.com/download", title: "Purchase" };
+  const responses = [];
+  const provider = await background([tab], responses);
+  assert.equal(provider.delays.at(-1), 2000, "CLI not running yet");
+  responses.push({ version: 1, request_id: requestId, action: "list" }, null);
+  await provider.tick();
+  assert.equal(provider.delays.at(-1), 500);
+});
+
+test("long titles are truncated without splitting characters", async () => {
+  const title = `${"a".repeat(119)}\u{1F3B5} and more`;
+  const responses = [];
+  const provider = await background(
+    [{ id: 1, url: "https://bandcamp.com/download", title }], responses);
+  responses.push({ version: 1, request_id: requestId, action: "list" }, null);
+  await provider.tick();
+  const body = provider.calls.at(-1).options.body;
+  assert.equal(/\\ud[89ab]/i.test(body), false, "no escaped lone surrogate");
+  const sent = JSON.parse(body).tabs[0].title;
+  assert.equal(Array.from(sent).length, 120);
+  assert.equal(sent.endsWith("\u{1F3B5}"), true);
 });
 
 test("page can be open before CLI; only selected tab is collected on demand", async () => {

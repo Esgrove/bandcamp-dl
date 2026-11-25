@@ -2,16 +2,40 @@
 
 Rust CLI tool for downloading all Bandcamp purchases automatically (or any other JSON array of URLs).
 Downloads files concurrently, unzips any zip files to the download directory and removes all cover images.
+Each file is written to a temporary `.part` file and renamed when complete, so an interrupted download
+never leaves a partial file behind. Connection errors, stalled transfers, and HTTP 429/5xx responses are
+retried twice. The exit status is nonzero if any download failed.
 
 ## Build
 
-Using the provided scripts:
+Using the provided scripts, which handle both the Rust CLI and the Firefox extension by default:
 
 ```shell
 ./build.sh
-
 ./install.sh
 ```
+
+Add `--cli-only` or `--web-only` to either script to handle only one part.
+Building the extension needs [Bun](https://bun.sh/); `--cli-only` only needs Cargo.
+
+`./install.sh` signs the extension with Mozilla as an *unlisted* add-on (never published or listed)
+so that regular Firefox can install it permanently, then opens the signed XPI in Firefox.
+Signing needs AMO API credentials in the environment:
+
+1. Generate them at <https://addons.mozilla.org/developers/addon/api/key/> (a free Mozilla account is needed).
+2. Export them before running the script:
+
+   ```shell
+   export MOZILLA_ADDON_API_USER="user:12345:67"   # JWT issuer
+   export MOZILLA_ADDON_API_TOKEN="..."            # JWT secret
+   ./install.sh
+   ```
+
+The signed version is `<Cargo version>.<build number>`, so every rebuild with changed extension sources
+gets a new version, as Mozilla requires. Unchanged sources reuse the previous signed XPI
+(tracked in `web-ext-artifacts/signed.json`). If you have no credentials,
+`./install.sh --dev` starts Firefox with the extension loaded temporarily.
+The script also copies the pairing JSON to the clipboard and prints the remaining manual steps.
 
 ## Usage
 
@@ -43,8 +67,9 @@ No browser cookies are exported and no always-running local service is required.
 
 ### One-time setup on each computer
 
-1. Install the CLI with `cargo install --path .` (works from PowerShell on Windows too).
-2. Install the extension from `extension/`. For development, open
+1. Run `./install.sh` (see [Build](#build)), or install the CLI with `cargo install --path .`
+   (works from PowerShell on Windows too) and the extension manually as described below.
+2. To install the extension manually from `extension/` for development, open
    `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select
    `extension/manifest.json`. Temporary installations disappear when Firefox restarts.
    Regular Firefox requires a **Mozilla-signed XPI** for permanent installation, including
@@ -75,7 +100,8 @@ bcdl --browser -o "$HOME/Music"
 bcdl --browser -o "$HOME\Music"
 ```
 
-The extension checks for a CLI request every two seconds while a download tab is open.
+The extension checks for a CLI request every two seconds while a download tab is open,
+and every half second while the CLI is talking to it.
 The CLI briefly gathers available tabs, asks you to choose if there is more than one,
 receives fresh links, closes its listener, and runs its normal download/extraction workflow.
 You can close Firefox after the links have arrived. `--force` and `--verbose` work normally;
@@ -87,7 +113,8 @@ bcdl --browser --browser-timeout 120
 bcdl --browser --browser-tab 2
 ```
 
-The default import timeout is 60 seconds, including tab selection. Links are deduplicated
+The default timeout is 60 seconds for each browser step: finding tabs, then receiving links.
+Time spent at the tab-selection prompt is not counted. Links are deduplicated
 without changing their signed query strings. The extension does not switch formats,
 generate missing links, or combine different purchase tabs.
 
@@ -106,7 +133,7 @@ Use `--browser-config PATH` with **both setup and import** to override it.
   site permissions, select an audio format, and wait for Bandcamp to prepare its links.
   The toolbar tooltip and extension settings show connection status.
 - If links expired, refresh the Bandcamp page and retry. Browser-import download errors
-  hide signed URL details; failed downloads cause a nonzero exit status.
+  hide signed URL details.
 - If port `47653` is occupied, stop the other CLI instance. To use another port,
   remove the old pairing file, run `bcdl --browser-setup --browser-port 47654`,
   and save the new JSON in the extension.
@@ -144,7 +171,7 @@ strip JSON quotes. No cross-platform shell command is copied by the extension.
 
 ### Extension development
 
-Use Bun 1.4.4 for JavaScript dependencies and commands:
+Use Bun 1.4.5 (pinned by `packageManager` in `package.json`; CI reads it from there) for JavaScript dependencies and commands. `./build.sh --web-only` runs all of these:
 
 ```shell
 bun install
@@ -152,6 +179,8 @@ bun run test
 bun run --bun lint
 bun run --bun build
 ```
+
+The extension version must match the Cargo package version; `./build.sh --sync-version` updates it.
 
 The last command packages unsigned source in `web-ext-artifacts/`; it does not sign
 or upload anything. CI installs the committed `bun.lock` with `--frozen-lockfile`.

@@ -13,6 +13,7 @@ on:
       - "extension-tests/**"
       - "package.json"
       - "bun.lock"
+      - "*.sh"
   pull_request:
     paths:
       - ".github/workflows/rust.yml"
@@ -23,6 +24,7 @@ on:
       - "extension-tests/**"
       - "package.json"
       - "bun.lock"
+      - "*.sh"
 
 # Cancel previous runs for PRs but not pushes to main
 concurrency:
@@ -100,14 +102,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Bun version comes from the packageManager field in package.json
       - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.4"
-      - name: Install extension development dependencies
-        run: bun install --frozen-lockfile
-      - name: Test extraction and browser handoff
-        run: bun run test
-      - name: Validate Firefox extension
-        run: bun run --bun lint
-      - name: Package Firefox extension
-        run: bun run --bun build
+      - name: Check shell scripts
+        run: shellcheck -x *.sh
+      - name: Test, lint, and package Firefox extension
+        run: ./build.sh --web-only

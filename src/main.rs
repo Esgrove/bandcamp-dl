@@ -29,7 +29,7 @@ struct Args {
     #[arg(long, requires = "browser_setup", conflicts_with_all = ["urls", "browser"], value_parser = clap::value_parser!(u16).range(1..))]
     browser_port: Option<u16>,
 
-    /// Seconds to wait for browser import
+    /// Seconds to wait for each browser step: finding tabs, then receiving links (prompt time excluded)
     #[arg(long, requires = "browser", conflicts_with_all = ["urls", "browser_setup"], default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=3600))]
     browser_timeout: u64,
 
@@ -136,10 +136,13 @@ async fn main() -> anyhow::Result<()> {
         _ => println!("{}", "No new files added".yellow()),
     }
 
-    if args.browser && failed > 0 {
-        anyhow::bail!(
-            "{failed} downloads failed. If links expired, refresh the Bandcamp download page and retry."
-        );
+    if failed > 0 {
+        if args.browser {
+            anyhow::bail!(
+                "{failed} downloads failed. If links expired, refresh the Bandcamp download page and retry."
+            );
+        }
+        anyhow::bail!("{failed} downloads failed");
     }
 
     Ok(())
